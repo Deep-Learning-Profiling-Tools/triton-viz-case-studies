@@ -6,7 +6,7 @@ from typing import Tuple
 
 @triton.jit
 def fused_recurrent_fwd_kernel(
-    q, k, v, beta, o, h0, ht, s_qk_h, s_vo_h, scale, B, H, T: tl.constexpr, K: tl.constexpr, V: tl.constexpr, 
+    q, k, v, beta, o, h0, ht, s_qk_h, s_vo_h, scale, B, H, T, K: tl.constexpr, V: tl.constexpr, 
     BK: tl.constexpr, BV: tl.constexpr, USE_INITIAL_STATE: tl.constexpr, STORE_FINAL_STATE: tl.constexpr, 
     IS_HEADWISE_BETA: tl.constexpr
 ):
@@ -30,28 +30,225 @@ def fused_recurrent_fwd_kernel(
         p_h0 = h0 + i_bh * K * V + (i_k * BK + tl.arange(0, BK)[None, :]) * V + (i_v * BV + tl.arange(0, BV)[:, None])
         h += tl.load(p_h0, mask=mask_kv, other=0).to(tl.float32)
 
-    for _ in tl.static_range(0, T):
-        b_k = tl.load(p_k, mask=mask_bk, other=0).to(tl.float32)
-        b_v = tl.load(p_v, mask=mask_bv, other=0).to(tl.float32)
-        b_q = tl.load(p_q, mask=mask_bk, other=0).to(tl.float32) * scale
-        _v_minus = tl.sum(h * b_k[None, :], axis=1)
-        b_v -= _v_minus
-        if IS_HEADWISE_BETA:
-            b_beta = tl.load(p_beta, mask=mask_bv, other=0).to(tl.float32)
-        else:
-            b_beta = tl.load(p_beta).to(tl.float32)
-        tl.store(p_v, b_v.to(p_v.dtype.element_ty), mask=mask_bv)
-        b_v *= b_beta
-        h += b_k[None, :] * b_v[:, None]
-        _o = h * b_q[None, :]
-        _o = tl.sum(_o, axis=1)
-        tl.store(p_o, _o.to(p_o.dtype.element_ty), mask=mask_bv)
+    # Initialization
+    h_0 = h
 
-        p_q += K
-        p_k += K
-        p_o += V
-        p_v += V
-        p_beta += V if IS_HEADWISE_BETA else 1
+    # Precompute pointers needed for each iteration
+    p_k_0, p_v_0, p_q_0, p_o_0, p_beta_0 = p_k, p_v, p_q, p_o, p_beta
+
+    p_k_1 = p_k_0 + K
+    p_v_1 = p_v_0 + V
+    p_q_1 = p_q_0 + K
+    p_o_1 = p_o_0 + V
+    p_beta_1 = p_beta_0 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_2 = p_k_1 + K
+    p_v_2 = p_v_1 + V
+    p_q_2 = p_q_1 + K
+    p_o_2 = p_o_1 + V
+    p_beta_2 = p_beta_1 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_3 = p_k_2 + K
+    p_v_3 = p_v_2 + V
+    p_q_3 = p_q_2 + K
+    p_o_3 = p_o_2 + V
+    p_beta_3 = p_beta_2 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_4 = p_k_3 + K
+    p_v_4 = p_v_3 + V
+    p_q_4 = p_q_3 + K
+    p_o_4 = p_o_3 + V
+    p_beta_4 = p_beta_3 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_5 = p_k_4 + K
+    p_v_5 = p_v_4 + V
+    p_q_5 = p_q_4 + K
+    p_o_5 = p_o_4 + V
+    p_beta_5 = p_beta_4 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_6 = p_k_5 + K
+    p_v_6 = p_v_5 + V
+    p_q_6 = p_q_5 + K
+    p_o_6 = p_o_5 + V
+    p_beta_6 = p_beta_5 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_7 = p_k_6 + K
+    p_v_7 = p_v_6 + V
+    p_q_7 = p_q_6 + K
+    p_o_7 = p_o_6 + V
+    p_beta_7 = p_beta_6 + (V if IS_HEADWISE_BETA else 1)
+
+    # =========================
+    # Pull all tl.load as early as possible
+    # =========================
+    b_k_0 = tl.load(p_k_0, mask=mask_bk, other=0).to(tl.float32)
+    b_v_0 = tl.load(p_v_0, mask=mask_bv, other=0).to(tl.float32)
+    b_q_0 = tl.load(p_q_0, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_0 = tl.load(p_beta_0, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_0 = tl.load(p_beta_0).to(tl.float32)
+
+    b_k_1 = tl.load(p_k_1, mask=mask_bk, other=0).to(tl.float32)
+    b_v_1 = tl.load(p_v_1, mask=mask_bv, other=0).to(tl.float32)
+    b_q_1 = tl.load(p_q_1, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_1 = tl.load(p_beta_1, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_1 = tl.load(p_beta_1).to(tl.float32)
+
+    b_k_2 = tl.load(p_k_2, mask=mask_bk, other=0).to(tl.float32)
+    b_v_2 = tl.load(p_v_2, mask=mask_bv, other=0).to(tl.float32)
+    b_q_2 = tl.load(p_q_2, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_2 = tl.load(p_beta_2, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_2 = tl.load(p_beta_2).to(tl.float32)
+
+    b_k_3 = tl.load(p_k_3, mask=mask_bk, other=0).to(tl.float32)
+    b_v_3 = tl.load(p_v_3, mask=mask_bv, other=0).to(tl.float32)
+    b_q_3 = tl.load(p_q_3, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_3 = tl.load(p_beta_3, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_3 = tl.load(p_beta_3).to(tl.float32)
+
+    b_k_4 = tl.load(p_k_4, mask=mask_bk, other=0).to(tl.float32)
+    b_v_4 = tl.load(p_v_4, mask=mask_bv, other=0).to(tl.float32)
+    b_q_4 = tl.load(p_q_4, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_4 = tl.load(p_beta_4, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_4 = tl.load(p_beta_4).to(tl.float32)
+
+    b_k_5 = tl.load(p_k_5, mask=mask_bk, other=0).to(tl.float32)
+    b_v_5 = tl.load(p_v_5, mask=mask_bv, other=0).to(tl.float32)
+    b_q_5 = tl.load(p_q_5, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_5 = tl.load(p_beta_5, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_5 = tl.load(p_beta_5).to(tl.float32)
+
+    b_k_6 = tl.load(p_k_6, mask=mask_bk, other=0).to(tl.float32)
+    b_v_6 = tl.load(p_v_6, mask=mask_bv, other=0).to(tl.float32)
+    b_q_6 = tl.load(p_q_6, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_6 = tl.load(p_beta_6, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_6 = tl.load(p_beta_6).to(tl.float32)
+
+    b_k_7 = tl.load(p_k_7, mask=mask_bk, other=0).to(tl.float32)
+    b_v_7 = tl.load(p_v_7, mask=mask_bv, other=0).to(tl.float32)
+    b_q_7 = tl.load(p_q_7, mask=mask_bk, other=0).to(tl.float32) * scale
+    if IS_HEADWISE_BETA:
+        b_beta_7 = tl.load(p_beta_7, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_7 = tl.load(p_beta_7).to(tl.float32)
+
+    # =========================
+    # Iterative computation (no more loads), arithmetic only
+    # =========================
+    # iter 0
+    _v_minus_0 = tl.sum(h_0 * b_k_0[None, :], axis=1)
+    b_v_0 -= _v_minus_0
+    b_v_0_store = b_v_0  # For writing back to memory
+    b_v_0 *= b_beta_0
+    h_1 = h_0 + b_k_0[None, :] * b_v_0[:, None]
+    _o_0 = h_1 * b_q_0[None, :]
+    _o_0 = tl.sum(_o_0, axis=1)
+
+    # iter 1
+    _v_minus_1 = tl.sum(h_1 * b_k_1[None, :], axis=1)
+    b_v_1 -= _v_minus_1
+    b_v_1_store = b_v_1
+    b_v_1 *= b_beta_1
+    h_2 = h_1 + b_k_1[None, :] * b_v_1[:, None]
+    _o_1 = h_2 * b_q_1[None, :]
+    _o_1 = tl.sum(_o_1, axis=1)
+
+    # iter 2
+    _v_minus_2 = tl.sum(h_2 * b_k_2[None, :], axis=1)
+    b_v_2 -= _v_minus_2
+    b_v_2_store = b_v_2
+    b_v_2 *= b_beta_2
+    h_3 = h_2 + b_k_2[None, :] * b_v_2[:, None]
+    _o_2 = h_3 * b_q_2[None, :]
+    _o_2 = tl.sum(_o_2, axis=1)
+
+    # iter 3
+    _v_minus_3 = tl.sum(h_3 * b_k_3[None, :], axis=1)
+    b_v_3 -= _v_minus_3
+    b_v_3_store = b_v_3
+    b_v_3 *= b_beta_3
+    h_4 = h_3 + b_k_3[None, :] * b_v_3[:, None]
+    _o_3 = h_4 * b_q_3[None, :]
+    _o_3 = tl.sum(_o_3, axis=1)
+
+    # iter 4
+    _v_minus_4 = tl.sum(h_4 * b_k_4[None, :], axis=1)
+    b_v_4 -= _v_minus_4
+    b_v_4_store = b_v_4
+    b_v_4 *= b_beta_4
+    h_5 = h_4 + b_k_4[None, :] * b_v_4[:, None]
+    _o_4 = h_5 * b_q_4[None, :]
+    _o_4 = tl.sum(_o_4, axis=1)
+
+    # iter 5
+    _v_minus_5 = tl.sum(h_5 * b_k_5[None, :], axis=1)
+    b_v_5 -= _v_minus_5
+    b_v_5_store = b_v_5
+    b_v_5 *= b_beta_5
+    h_6 = h_5 + b_k_5[None, :] * b_v_5[:, None]
+    _o_5 = h_6 * b_q_5[None, :]
+    _o_5 = tl.sum(_o_5, axis=1)
+
+    # iter 6
+    _v_minus_6 = tl.sum(h_6 * b_k_6[None, :], axis=1)
+    b_v_6 -= _v_minus_6
+    b_v_6_store = b_v_6
+    b_v_6 *= b_beta_6
+    h_7 = h_6 + b_k_6[None, :] * b_v_6[:, None]
+    _o_6 = h_7 * b_q_6[None, :]
+    _o_6 = tl.sum(_o_6, axis=1)
+
+    # iter 7
+    _v_minus_7 = tl.sum(h_7 * b_k_7[None, :], axis=1)
+    b_v_7 -= _v_minus_7
+    b_v_7_store = b_v_7
+    b_v_7 *= b_beta_7
+    h_8 = h_7 + b_k_7[None, :] * b_v_7[:, None]
+    _o_7 = h_8 * b_q_7[None, :]
+    _o_7 = tl.sum(_o_7, axis=1)
+
+    # =========================
+    # Defer all tl.store until the end
+    # =========================
+    tl.store(p_v_0, b_v_0_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_0, _o_0.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_1, b_v_1_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_1, _o_1.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_2, b_v_2_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_2, _o_2.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_3, b_v_3_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_3, _o_3.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_4, b_v_4_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_4, _o_4.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_5, b_v_5_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_5, _o_5.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_6, b_v_6_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_6, _o_6.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    tl.store(p_v_7, b_v_7_store.to(p_v.dtype.element_ty), mask=mask_bv)
+    tl.store(p_o_7, _o_7.to(p_o.dtype.element_ty), mask=mask_bv)
+
+    # If later iterations need post-loop values/pointers, update base variables at the end
+    h = h_8
 
     if STORE_FINAL_STATE:
         p_ht = ht + i_bh * K * V + (i_k * BK + tl.arange(0, BK)[None, :]) * V + (i_v * BV + tl.arange(0, BV)[:, None])
@@ -59,7 +256,7 @@ def fused_recurrent_fwd_kernel(
 
 @triton.jit
 def fused_recurrent_bwd_kernel(
-    q, k, v, beta, dht, dh0, do, dq, dk, dv, dbeta, h0, s_qk_h, s_vo_h, NK, scale, B, H, T: tl.constexpr, 
+    q, k, v, beta, dht, dh0, do, dq, dk, dv, dbeta, h0, s_qk_h, s_vo_h, NK, scale, B, H, T, 
     K: tl.constexpr, V: tl.constexpr, BK: tl.constexpr, BV: tl.constexpr, USE_INITIAL_STATE: tl.constexpr, 
     IS_HEADWISE_BETA: tl.constexpr, USE_DH0: tl.constexpr, USE_DHT: tl.constexpr
 ):
@@ -88,39 +285,278 @@ def fused_recurrent_bwd_kernel(
         p_ht = dht + i_bh * K * V + (i_k * BK + tl.arange(0, BK)[:, None]) * V + (i_v * BV + tl.arange(0, BV)[None, :])
         d_h += tl.load(p_ht, mask=mask_bk[:, None] & mask_bv[None, :], other=0).to(tl.float32)
 
-    for _ in tl.static_range(0, T):
-        b_q = tl.load(p_q, mask=mask_bk, other=0).to(tl.float32) * scale
-        b_k = tl.load(p_k, mask=mask_bk, other=0).to(tl.float32)
-        b_v = tl.load(p_v, mask=mask_bv, other=0).to(tl.float32)
-        b_do = tl.load(p_do, mask=mask_bv, other=0).to(tl.float32)
-        if IS_HEADWISE_BETA:
-            b_beta = tl.load(p_beta, mask=mask_bv, other=0).to(tl.float32)
-        else:
-            b_beta = tl.load(p_beta).to(tl.float32)
-        d_h += b_q[:, None] * b_do[None, :]
-        d_k = tl.sum(d_h * (b_v * b_beta)[None, :], axis=1)
-        d_v = tl.sum(d_h * b_k[:, None], axis=0)
+    # Initialization
+    d_h_0 = d_h
 
-        d_beta = d_v * b_v if IS_HEADWISE_BETA else tl.sum(d_v * b_v)
-        d_v = d_v * b_beta
+    # Precompute pointers needed for each iteration (reverse traversal)
+    p_q_0, p_k_0, p_v_0, p_do_0, p_dk_0, p_dv_0, p_dbeta_0, p_beta_0 = p_q, p_k, p_v, p_do, p_dk, p_dv, p_dbeta, p_beta
 
-        tl.store(p_dk, d_k.to(p_dk.dtype.element_ty), mask=mask_bk)
-        tl.store(p_dv, d_v.to(p_dv.dtype.element_ty), mask=mask_bv)
-        if IS_HEADWISE_BETA:
-            tl.store(p_dbeta, d_beta.to(p_dbeta.dtype.element_ty), mask=mask_bv)
-        else:
-            tl.store(p_dbeta, d_beta.to(p_dbeta.dtype.element_ty))
+    p_q_1 = p_q_0 - K
+    p_k_1 = p_k_0 - K
+    p_v_1 = p_v_0 - V
+    p_do_1 = p_do_0 - V
+    p_dk_1 = p_dk_0 - K
+    p_dv_1 = p_dv_0 - V
+    p_dbeta_1 = p_dbeta_0 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_1 = p_beta_0 - (V if IS_HEADWISE_BETA else 1)
 
-        d_h -= b_k[:, None] * d_v[None, :]
+    p_q_2 = p_q_1 - K
+    p_k_2 = p_k_1 - K
+    p_v_2 = p_v_1 - V
+    p_do_2 = p_do_1 - V
+    p_dk_2 = p_dk_1 - K
+    p_dv_2 = p_dv_1 - V
+    p_dbeta_2 = p_dbeta_1 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_2 = p_beta_1 - (V if IS_HEADWISE_BETA else 1)
 
-        p_do -= V
-        p_q -= K
-        p_k -= K
-        p_v -= V
-        p_dk -= K
-        p_dv -= V
-        p_dbeta -= V if IS_HEADWISE_BETA else 1
-        p_beta -= V if IS_HEADWISE_BETA else 1
+    p_q_3 = p_q_2 - K
+    p_k_3 = p_k_2 - K
+    p_v_3 = p_v_2 - V
+    p_do_3 = p_do_2 - V
+    p_dk_3 = p_dk_2 - K
+    p_dv_3 = p_dv_2 - V
+    p_dbeta_3 = p_dbeta_2 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_3 = p_beta_2 - (V if IS_HEADWISE_BETA else 1)
+
+    p_q_4 = p_q_3 - K
+    p_k_4 = p_k_3 - K
+    p_v_4 = p_v_3 - V
+    p_do_4 = p_do_3 - V
+    p_dk_4 = p_dk_3 - K
+    p_dv_4 = p_dv_3 - V
+    p_dbeta_4 = p_dbeta_3 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_4 = p_beta_3 - (V if IS_HEADWISE_BETA else 1)
+
+    p_q_5 = p_q_4 - K
+    p_k_5 = p_k_4 - K
+    p_v_5 = p_v_4 - V
+    p_do_5 = p_do_4 - V
+    p_dk_5 = p_dk_4 - K
+    p_dv_5 = p_dv_4 - V
+    p_dbeta_5 = p_dbeta_4 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_5 = p_beta_4 - (V if IS_HEADWISE_BETA else 1)
+
+    p_q_6 = p_q_5 - K
+    p_k_6 = p_k_5 - K
+    p_v_6 = p_v_5 - V
+    p_do_6 = p_do_5 - V
+    p_dk_6 = p_dk_5 - K
+    p_dv_6 = p_dv_5 - V
+    p_dbeta_6 = p_dbeta_5 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_6 = p_beta_5 - (V if IS_HEADWISE_BETA else 1)
+
+    p_q_7 = p_q_6 - K
+    p_k_7 = p_k_6 - K
+    p_v_7 = p_v_6 - V
+    p_do_7 = p_do_6 - V
+    p_dk_7 = p_dk_6 - K
+    p_dv_7 = p_dv_6 - V
+    p_dbeta_7 = p_dbeta_6 - (V if IS_HEADWISE_BETA else 1)
+    p_beta_7 = p_beta_6 - (V if IS_HEADWISE_BETA else 1)
+
+    # =========================
+    # Pull all tl.load as early as possible
+    # =========================
+    b_q_0 = tl.load(p_q_0, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_0 = tl.load(p_k_0, mask=mask_bk, other=0).to(tl.float32)
+    b_v_0 = tl.load(p_v_0, mask=mask_bv, other=0).to(tl.float32)
+    b_do_0 = tl.load(p_do_0, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_0 = tl.load(p_beta_0, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_0 = tl.load(p_beta_0).to(tl.float32)
+
+    b_q_1 = tl.load(p_q_1, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_1 = tl.load(p_k_1, mask=mask_bk, other=0).to(tl.float32)
+    b_v_1 = tl.load(p_v_1, mask=mask_bv, other=0).to(tl.float32)
+    b_do_1 = tl.load(p_do_1, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_1 = tl.load(p_beta_1, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_1 = tl.load(p_beta_1).to(tl.float32)
+
+    b_q_2 = tl.load(p_q_2, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_2 = tl.load(p_k_2, mask=mask_bk, other=0).to(tl.float32)
+    b_v_2 = tl.load(p_v_2, mask=mask_bv, other=0).to(tl.float32)
+    b_do_2 = tl.load(p_do_2, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_2 = tl.load(p_beta_2, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_2 = tl.load(p_beta_2).to(tl.float32)
+
+    b_q_3 = tl.load(p_q_3, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_3 = tl.load(p_k_3, mask=mask_bk, other=0).to(tl.float32)
+    b_v_3 = tl.load(p_v_3, mask=mask_bv, other=0).to(tl.float32)
+    b_do_3 = tl.load(p_do_3, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_3 = tl.load(p_beta_3, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_3 = tl.load(p_beta_3).to(tl.float32)
+
+    b_q_4 = tl.load(p_q_4, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_4 = tl.load(p_k_4, mask=mask_bk, other=0).to(tl.float32)
+    b_v_4 = tl.load(p_v_4, mask=mask_bv, other=0).to(tl.float32)
+    b_do_4 = tl.load(p_do_4, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_4 = tl.load(p_beta_4, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_4 = tl.load(p_beta_4).to(tl.float32)
+
+    b_q_5 = tl.load(p_q_5, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_5 = tl.load(p_k_5, mask=mask_bk, other=0).to(tl.float32)
+    b_v_5 = tl.load(p_v_5, mask=mask_bv, other=0).to(tl.float32)
+    b_do_5 = tl.load(p_do_5, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_5 = tl.load(p_beta_5, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_5 = tl.load(p_beta_5).to(tl.float32)
+
+    b_q_6 = tl.load(p_q_6, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_6 = tl.load(p_k_6, mask=mask_bk, other=0).to(tl.float32)
+    b_v_6 = tl.load(p_v_6, mask=mask_bv, other=0).to(tl.float32)
+    b_do_6 = tl.load(p_do_6, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_6 = tl.load(p_beta_6, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_6 = tl.load(p_beta_6).to(tl.float32)
+
+    b_q_7 = tl.load(p_q_7, mask=mask_bk, other=0).to(tl.float32) * scale
+    b_k_7 = tl.load(p_k_7, mask=mask_bk, other=0).to(tl.float32)
+    b_v_7 = tl.load(p_v_7, mask=mask_bv, other=0).to(tl.float32)
+    b_do_7 = tl.load(p_do_7, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_7 = tl.load(p_beta_7, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_7 = tl.load(p_beta_7).to(tl.float32)
+
+    # =========================
+    # Iterative computation (no more loads), arithmetic only
+    # =========================
+    # iter 0
+    d_h_0 += b_q_0[:, None] * b_do_0[None, :]
+    d_k_0 = tl.sum(d_h_0 * (b_v_0 * b_beta_0)[None, :], axis=1)
+    d_v_0 = tl.sum(d_h_0 * b_k_0[:, None], axis=0)
+    d_beta_0 = d_v_0 * b_v_0 if IS_HEADWISE_BETA else tl.sum(d_v_0 * b_v_0)
+    d_v_0_store = d_v_0 * b_beta_0
+    d_h_1 = d_h_0 - b_k_0[:, None] * d_v_0_store[None, :]
+
+    # iter 1
+    d_h_1 += b_q_1[:, None] * b_do_1[None, :]
+    d_k_1 = tl.sum(d_h_1 * (b_v_1 * b_beta_1)[None, :], axis=1)
+    d_v_1 = tl.sum(d_h_1 * b_k_1[:, None], axis=0)
+    d_beta_1 = d_v_1 * b_v_1 if IS_HEADWISE_BETA else tl.sum(d_v_1 * b_v_1)
+    d_v_1_store = d_v_1 * b_beta_1
+    d_h_2 = d_h_1 - b_k_1[:, None] * d_v_1_store[None, :]
+
+    # iter 2
+    d_h_2 += b_q_2[:, None] * b_do_2[None, :]
+    d_k_2 = tl.sum(d_h_2 * (b_v_2 * b_beta_2)[None, :], axis=1)
+    d_v_2 = tl.sum(d_h_2 * b_k_2[:, None], axis=0)
+    d_beta_2 = d_v_2 * b_v_2 if IS_HEADWISE_BETA else tl.sum(d_v_2 * b_v_2)
+    d_v_2_store = d_v_2 * b_beta_2
+    d_h_3 = d_h_2 - b_k_2[:, None] * d_v_2_store[None, :]
+
+    # iter 3
+    d_h_3 += b_q_3[:, None] * b_do_3[None, :]
+    d_k_3 = tl.sum(d_h_3 * (b_v_3 * b_beta_3)[None, :], axis=1)
+    d_v_3 = tl.sum(d_h_3 * b_k_3[:, None], axis=0)
+    d_beta_3 = d_v_3 * b_v_3 if IS_HEADWISE_BETA else tl.sum(d_v_3 * b_v_3)
+    d_v_3_store = d_v_3 * b_beta_3
+    d_h_4 = d_h_3 - b_k_3[:, None] * d_v_3_store[None, :]
+
+    # iter 4
+    d_h_4 += b_q_4[:, None] * b_do_4[None, :]
+    d_k_4 = tl.sum(d_h_4 * (b_v_4 * b_beta_4)[None, :], axis=1)
+    d_v_4 = tl.sum(d_h_4 * b_k_4[:, None], axis=0)
+    d_beta_4 = d_v_4 * b_v_4 if IS_HEADWISE_BETA else tl.sum(d_v_4 * b_v_4)
+    d_v_4_store = d_v_4 * b_beta_4
+    d_h_5 = d_h_4 - b_k_4[:, None] * d_v_4_store[None, :]
+
+    # iter 5
+    d_h_5 += b_q_5[:, None] * b_do_5[None, :]
+    d_k_5 = tl.sum(d_h_5 * (b_v_5 * b_beta_5)[None, :], axis=1)
+    d_v_5 = tl.sum(d_h_5 * b_k_5[:, None], axis=0)
+    d_beta_5 = d_v_5 * b_v_5 if IS_HEADWISE_BETA else tl.sum(d_v_5 * b_v_5)
+    d_v_5_store = d_v_5 * b_beta_5
+    d_h_6 = d_h_5 - b_k_5[:, None] * d_v_5_store[None, :]
+
+    # iter 6
+    d_h_6 += b_q_6[:, None] * b_do_6[None, :]
+    d_k_6 = tl.sum(d_h_6 * (b_v_6 * b_beta_6)[None, :], axis=1)
+    d_v_6 = tl.sum(d_h_6 * b_k_6[:, None], axis=0)
+    d_beta_6 = d_v_6 * b_v_6 if IS_HEADWISE_BETA else tl.sum(d_v_6 * b_v_6)
+    d_v_6_store = d_v_6 * b_beta_6
+    d_h_7 = d_h_6 - b_k_6[:, None] * d_v_6_store[None, :]
+
+    # iter 7
+    d_h_7 += b_q_7[:, None] * b_do_7[None, :]
+    d_k_7 = tl.sum(d_h_7 * (b_v_7 * b_beta_7)[None, :], axis=1)
+    d_v_7 = tl.sum(d_h_7 * b_k_7[:, None], axis=0)
+    d_beta_7 = d_v_7 * b_v_7 if IS_HEADWISE_BETA else tl.sum(d_v_7 * b_v_7)
+    d_v_7_store = d_v_7 * b_beta_7
+    d_h_8 = d_h_7 - b_k_7[:, None] * d_v_7_store[None, :]
+
+    # =========================
+    # Defer all tl.store until the end
+    # =========================
+    tl.store(p_dk_0, d_k_0.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_0, d_v_0_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_0, d_beta_0.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_0, d_beta_0.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_1, d_k_1.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_1, d_v_1_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_1, d_beta_1.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_1, d_beta_1.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_2, d_k_2.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_2, d_v_2_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_2, d_beta_2.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_2, d_beta_2.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_3, d_k_3.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_3, d_v_3_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_3, d_beta_3.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_3, d_beta_3.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_4, d_k_4.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_4, d_v_4_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_4, d_beta_4.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_4, d_beta_4.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_5, d_k_5.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_5, d_v_5_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_5, d_beta_5.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_5, d_beta_5.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_6, d_k_6.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_6, d_v_6_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_6, d_beta_6.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_6, d_beta_6.to(p_dbeta.dtype.element_ty))
+
+    tl.store(p_dk_7, d_k_7.to(p_dk.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dv_7, d_v_7_store.to(p_dv.dtype.element_ty), mask=mask_bv)
+    if IS_HEADWISE_BETA:
+        tl.store(p_dbeta_7, d_beta_7.to(p_dbeta.dtype.element_ty), mask=mask_bv)
+    else:
+        tl.store(p_dbeta_7, d_beta_7.to(p_dbeta.dtype.element_ty))
+
+    # If later iterations need post-loop values/pointers, update base variables at the end
+    d_h = d_h_8
 
     if USE_DH0:
         p_dh0 = dh0 + i_bh * K * V + (i_k * BK + tl.arange(0, BK)[:, None]) * V + (i_v * BV + tl.arange(0, BV)[None, :])
@@ -147,33 +583,247 @@ def fused_recurrent_bwd_kernel(
         p_h0 = h0 + i_bh * K * V + (i_k * BK + tl.arange(0, BK)[:, None]) * V + (i_v * BV + tl.arange(0, BV)[None, :])
         h += tl.load(p_h0, mask=mask_kv, other=0).to(tl.float32)
 
-    for i in tl.static_range(0, T):
-        d_k = tl.load(p_dk, mask=mask_bk, other=0).to(tl.float32)
-        d_v = tl.load(p_dv, mask=mask_bv, other=0).to(tl.float32)
-        d_k -= tl.sum(d_v[None, :] * h, axis=1)
-        tl.store(p_dk, d_k.to(p_dk.dtype.element_ty), mask=mask_bk)
+    # Initialization
+    h_0 = h
 
-        b_k = tl.load(p_k, mask=mask_bk, other=0).to(tl.float32)
-        b_v = tl.load(p_v, mask=mask_bv, other=0).to(tl.float32)
-        b_do = tl.load(p_do, mask=mask_bv, other=0).to(tl.float32)
-        if IS_HEADWISE_BETA:
-            b_beta = tl.load(p_beta, mask=mask_bv, other=0).to(tl.float32)
-        else:
-            b_beta = tl.load(p_beta).to(tl.float32)
-        b_v *= b_beta
+    # Precompute pointers needed for each iteration
+    p_k_0, p_v_0, p_do_0, p_dk_0, p_dv_0, p_dq_0, p_beta_0 = p_k, p_v, p_do, p_dk, p_dv, p_dq, p_beta
 
-        h += b_k[:, None] * b_v[None, :]
-        _d_q = h * b_do[None, :]
-        d_q = tl.sum(_d_q, axis=1) * scale
-        tl.store(p_dq, d_q.to(p_dq.dtype.element_ty), mask=mask_bk)
+    p_k_1 = p_k_0 + K
+    p_v_1 = p_v_0 + V
+    p_do_1 = p_do_0 + V
+    p_dk_1 = p_dk_0 + K
+    p_dv_1 = p_dv_0 + V
+    p_dq_1 = p_dq_0 + K
+    p_beta_1 = p_beta_0 + (V if IS_HEADWISE_BETA else 1)
 
-        p_k += K
-        p_do += V
-        p_v += V
-        p_dk += K
-        p_dv += V
-        p_dq += K
-        p_beta += V if IS_HEADWISE_BETA else 1
+    p_k_2 = p_k_1 + K
+    p_v_2 = p_v_1 + V
+    p_do_2 = p_do_1 + V
+    p_dk_2 = p_dk_1 + K
+    p_dv_2 = p_dv_1 + V
+    p_dq_2 = p_dq_1 + K
+    p_beta_2 = p_beta_1 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_3 = p_k_2 + K
+    p_v_3 = p_v_2 + V
+    p_do_3 = p_do_2 + V
+    p_dk_3 = p_dk_2 + K
+    p_dv_3 = p_dv_2 + V
+    p_dq_3 = p_dq_2 + K
+    p_beta_3 = p_beta_2 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_4 = p_k_3 + K
+    p_v_4 = p_v_3 + V
+    p_do_4 = p_do_3 + V
+    p_dk_4 = p_dk_3 + K
+    p_dv_4 = p_dv_3 + V
+    p_dq_4 = p_dq_3 + K
+    p_beta_4 = p_beta_3 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_5 = p_k_4 + K
+    p_v_5 = p_v_4 + V
+    p_do_5 = p_do_4 + V
+    p_dk_5 = p_dk_4 + K
+    p_dv_5 = p_dv_4 + V
+    p_dq_5 = p_dq_4 + K
+    p_beta_5 = p_beta_4 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_6 = p_k_5 + K
+    p_v_6 = p_v_5 + V
+    p_do_6 = p_do_5 + V
+    p_dk_6 = p_dk_5 + K
+    p_dv_6 = p_dv_5 + V
+    p_dq_6 = p_dq_5 + K
+    p_beta_6 = p_beta_5 + (V if IS_HEADWISE_BETA else 1)
+
+    p_k_7 = p_k_6 + K
+    p_v_7 = p_v_6 + V
+    p_do_7 = p_do_6 + V
+    p_dk_7 = p_dk_6 + K
+    p_dv_7 = p_dv_6 + V
+    p_dq_7 = p_dq_6 + K
+    p_beta_7 = p_beta_6 + (V if IS_HEADWISE_BETA else 1)
+
+    # =========================
+    # Pull all tl.load as early as possible
+    # =========================
+    d_k_0 = tl.load(p_dk_0, mask=mask_bk, other=0).to(tl.float32)
+    d_v_0 = tl.load(p_dv_0, mask=mask_bv, other=0).to(tl.float32)
+    b_k_0 = tl.load(p_k_0, mask=mask_bk, other=0).to(tl.float32)
+    b_v_0 = tl.load(p_v_0, mask=mask_bv, other=0).to(tl.float32)
+    b_do_0 = tl.load(p_do_0, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_0 = tl.load(p_beta_0, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_0 = tl.load(p_beta_0).to(tl.float32)
+
+    d_k_1 = tl.load(p_dk_1, mask=mask_bk, other=0).to(tl.float32)
+    d_v_1 = tl.load(p_dv_1, mask=mask_bv, other=0).to(tl.float32)
+    b_k_1 = tl.load(p_k_1, mask=mask_bk, other=0).to(tl.float32)
+    b_v_1 = tl.load(p_v_1, mask=mask_bv, other=0).to(tl.float32)
+    b_do_1 = tl.load(p_do_1, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_1 = tl.load(p_beta_1, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_1 = tl.load(p_beta_1).to(tl.float32)
+
+    d_k_2 = tl.load(p_dk_2, mask=mask_bk, other=0).to(tl.float32)
+    d_v_2 = tl.load(p_dv_2, mask=mask_bv, other=0).to(tl.float32)
+    b_k_2 = tl.load(p_k_2, mask=mask_bk, other=0).to(tl.float32)
+    b_v_2 = tl.load(p_v_2, mask=mask_bv, other=0).to(tl.float32)
+    b_do_2 = tl.load(p_do_2, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_2 = tl.load(p_beta_2, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_2 = tl.load(p_beta_2).to(tl.float32)
+
+    d_k_3 = tl.load(p_dk_3, mask=mask_bk, other=0).to(tl.float32)
+    d_v_3 = tl.load(p_dv_3, mask=mask_bv, other=0).to(tl.float32)
+    b_k_3 = tl.load(p_k_3, mask=mask_bk, other=0).to(tl.float32)
+    b_v_3 = tl.load(p_v_3, mask=mask_bv, other=0).to(tl.float32)
+    b_do_3 = tl.load(p_do_3, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_3 = tl.load(p_beta_3, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_3 = tl.load(p_beta_3).to(tl.float32)
+
+    d_k_4 = tl.load(p_dk_4, mask=mask_bk, other=0).to(tl.float32)
+    d_v_4 = tl.load(p_dv_4, mask=mask_bv, other=0).to(tl.float32)
+    b_k_4 = tl.load(p_k_4, mask=mask_bk, other=0).to(tl.float32)
+    b_v_4 = tl.load(p_v_4, mask=mask_bv, other=0).to(tl.float32)
+    b_do_4 = tl.load(p_do_4, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_4 = tl.load(p_beta_4, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_4 = tl.load(p_beta_4).to(tl.float32)
+
+    d_k_5 = tl.load(p_dk_5, mask=mask_bk, other=0).to(tl.float32)
+    d_v_5 = tl.load(p_dv_5, mask=mask_bv, other=0).to(tl.float32)
+    b_k_5 = tl.load(p_k_5, mask=mask_bk, other=0).to(tl.float32)
+    b_v_5 = tl.load(p_v_5, mask=mask_bv, other=0).to(tl.float32)
+    b_do_5 = tl.load(p_do_5, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_5 = tl.load(p_beta_5, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_5 = tl.load(p_beta_5).to(tl.float32)
+
+    d_k_6 = tl.load(p_dk_6, mask=mask_bk, other=0).to(tl.float32)
+    d_v_6 = tl.load(p_dv_6, mask=mask_bv, other=0).to(tl.float32)
+    b_k_6 = tl.load(p_k_6, mask=mask_bk, other=0).to(tl.float32)
+    b_v_6 = tl.load(p_v_6, mask=mask_bv, other=0).to(tl.float32)
+    b_do_6 = tl.load(p_do_6, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_6 = tl.load(p_beta_6, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_6 = tl.load(p_beta_6).to(tl.float32)
+
+    d_k_7 = tl.load(p_dk_7, mask=mask_bk, other=0).to(tl.float32)
+    d_v_7 = tl.load(p_dv_7, mask=mask_bv, other=0).to(tl.float32)
+    b_k_7 = tl.load(p_k_7, mask=mask_bk, other=0).to(tl.float32)
+    b_v_7 = tl.load(p_v_7, mask=mask_bv, other=0).to(tl.float32)
+    b_do_7 = tl.load(p_do_7, mask=mask_bv, other=0).to(tl.float32)
+    if IS_HEADWISE_BETA:
+        b_beta_7 = tl.load(p_beta_7, mask=mask_bv, other=0).to(tl.float32)
+    else:
+        b_beta_7 = tl.load(p_beta_7).to(tl.float32)
+
+    # =========================
+    # Iterative computation (no more loads), arithmetic only
+    # =========================
+    # iter 0
+    d_k_0 -= tl.sum(d_v_0[None, :] * h_0, axis=1)
+    d_k_0_store = d_k_0
+    b_v_0 *= b_beta_0
+    h_1 = h_0 + b_k_0[:, None] * b_v_0[None, :]
+    _d_q_0 = h_1 * b_do_0[None, :]
+    d_q_0 = tl.sum(_d_q_0, axis=1) * scale
+
+    # iter 1
+    d_k_1 -= tl.sum(d_v_1[None, :] * h_1, axis=1)
+    d_k_1_store = d_k_1
+    b_v_1 *= b_beta_1
+    h_2 = h_1 + b_k_1[:, None] * b_v_1[None, :]
+    _d_q_1 = h_2 * b_do_1[None, :]
+    d_q_1 = tl.sum(_d_q_1, axis=1) * scale
+
+    # iter 2
+    d_k_2 -= tl.sum(d_v_2[None, :] * h_2, axis=1)
+    d_k_2_store = d_k_2
+    b_v_2 *= b_beta_2
+    h_3 = h_2 + b_k_2[:, None] * b_v_2[None, :]
+    _d_q_2 = h_3 * b_do_2[None, :]
+    d_q_2 = tl.sum(_d_q_2, axis=1) * scale
+
+    # iter 3
+    d_k_3 -= tl.sum(d_v_3[None, :] * h_3, axis=1)
+    d_k_3_store = d_k_3
+    b_v_3 *= b_beta_3
+    h_4 = h_3 + b_k_3[:, None] * b_v_3[None, :]
+    _d_q_3 = h_4 * b_do_3[None, :]
+    d_q_3 = tl.sum(_d_q_3, axis=1) * scale
+
+    # iter 4
+    d_k_4 -= tl.sum(d_v_4[None, :] * h_4, axis=1)
+    d_k_4_store = d_k_4
+    b_v_4 *= b_beta_4
+    h_5 = h_4 + b_k_4[:, None] * b_v_4[None, :]
+    _d_q_4 = h_5 * b_do_4[None, :]
+    d_q_4 = tl.sum(_d_q_4, axis=1) * scale
+
+    # iter 5
+    d_k_5 -= tl.sum(d_v_5[None, :] * h_5, axis=1)
+    d_k_5_store = d_k_5
+    b_v_5 *= b_beta_5
+    h_6 = h_5 + b_k_5[:, None] * b_v_5[None, :]
+    _d_q_5 = h_6 * b_do_5[None, :]
+    d_q_5 = tl.sum(_d_q_5, axis=1) * scale
+
+    # iter 6
+    d_k_6 -= tl.sum(d_v_6[None, :] * h_6, axis=1)
+    d_k_6_store = d_k_6
+    b_v_6 *= b_beta_6
+    h_7 = h_6 + b_k_6[:, None] * b_v_6[None, :]
+    _d_q_6 = h_7 * b_do_6[None, :]
+    d_q_6 = tl.sum(_d_q_6, axis=1) * scale
+
+    # iter 7
+    d_k_7 -= tl.sum(d_v_7[None, :] * h_7, axis=1)
+    d_k_7_store = d_k_7
+    b_v_7 *= b_beta_7
+    h_8 = h_7 + b_k_7[:, None] * b_v_7[None, :]
+    _d_q_7 = h_8 * b_do_7[None, :]
+    d_q_7 = tl.sum(_d_q_7, axis=1) * scale
+
+    # =========================
+    # Defer all tl.store until the end
+    # =========================
+    tl.store(p_dk_0, d_k_0_store.to(p_dk_0.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_0, d_q_0.to(p_dq_0.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_1, d_k_1_store.to(p_dk_1.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_1, d_q_1.to(p_dq_1.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_2, d_k_2_store.to(p_dk_2.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_2, d_q_2.to(p_dq_2.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_3, d_k_3_store.to(p_dk_3.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_3, d_q_3.to(p_dq_3.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_4, d_k_4_store.to(p_dk_4.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_4, d_q_4.to(p_dq_4.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_5, d_k_5_store.to(p_dk_5.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_5, d_q_5.to(p_dq_5.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_6, d_k_6_store.to(p_dk_6.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_6, d_q_6.to(p_dq_6.dtype.element_ty), mask=mask_bk)
+
+    tl.store(p_dk_7, d_k_7_store.to(p_dk_7.dtype.element_ty), mask=mask_bk)
+    tl.store(p_dq_7, d_q_7.to(p_dq_7.dtype.element_ty), mask=mask_bk)
+
+    # If later iterations need post-loop values/pointers, update base variables at the end
+    h = h_8
 
 class FusedRecurrentFunction(torch.autograd.Function):
 
@@ -199,7 +849,7 @@ class FusedRecurrentFunction(torch.autograd.Function):
             q.stride(1),
             v.stride(1),
             scale,
-            B=B, H=H, T=int(T), K=K, V=V,
+            B=B, H=H, T=T, K=K, V=V,
             BK=BK, BV=BV,
             USE_INITIAL_STATE=initial_state is not None,
             STORE_FINAL_STATE=final_state is not None,
@@ -244,7 +894,7 @@ class FusedRecurrentFunction(torch.autograd.Function):
             q.stride(1),
             v.stride(1),
             NK, scale,
-            B=B, H=H, T=int(T), K=K, V=V,
+            B=B, H=H, T=T, K=K, V=V,
             BK=BK, BV=BV,
             USE_INITIAL_STATE=initial_state is not None,
             USE_DH0=dh0 is not None,
@@ -286,10 +936,10 @@ def fused_recurrent_delta_rule(
 import torch
 
 def test_fused_recurrent_delta_rule_with_backward():
-    # 定义尺寸
+    # Define dimensions
     B, H, T, K, V = 2, 4, 8, 16, 32
 
-    # 确保输入张量为叶子张量，且 requires_grad=True
+    # Ensure inputs are leaf tensors with requires_grad=True
     q = torch.randn(B, H, T, K, dtype=torch.float32, device='cuda', requires_grad=True)
     k = torch.randn(B, H, T, K, dtype=torch.float32, device='cuda', requires_grad=True)
     v = torch.randn(B, H, T, V, dtype=torch.float32, device='cuda', requires_grad=True)

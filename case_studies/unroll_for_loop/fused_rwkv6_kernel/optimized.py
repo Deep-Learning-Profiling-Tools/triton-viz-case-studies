@@ -46,10 +46,10 @@ def fused_recurrent_rwkv6_fwd_kernel(
     #     p_v += -V if REVERSE else V
     #     p_w += -K if REVERSE else K
 
-    # 初始
+    # Initialization
     b_h_0 = b_h
 
-    # 先把每次迭代要用到的指针都算出来
+    # Precompute pointers needed for each iteration
     p_k_0, p_v_0, p_q_0, p_o_0, p_w_0 = p_k, p_v, p_q, p_o, p_w
 
     p_k_1 = p_k_0 + (-K if REVERSE else K)
@@ -71,7 +71,7 @@ def fused_recurrent_rwkv6_fwd_kernel(
     p_w_3 = p_w_2 + (-K if REVERSE else K)
 
     # =========================
-    # 所有 tl.load 尽量提前
+    # Pull all tl.load as early as possible
     # =========================
     b_k_0 = tl.load(p_k_0, mask=mask_bk, other=0).to(tl.float32)
     b_v_0 = tl.load(p_v_0, mask=mask_bv, other=0).to(tl.float32)
@@ -94,7 +94,7 @@ def fused_recurrent_rwkv6_fwd_kernel(
     b_w_3 = tl.load(p_w_3, mask=mask_bk, other=0).to(tl.float32)
 
     # =========================
-    # 逐次计算（不再 load），只做算术和 exp/sum
+    # Iterative computation (no more loads), arithmetic and exp/sum only
     # =========================
     # iter 0
     b_w_0 = tl.exp(b_w_0)
@@ -129,14 +129,14 @@ def fused_recurrent_rwkv6_fwd_kernel(
     b_h_4  = b_h_4 + b_kv_3
 
     # =========================
-    # 所有 tl.store 尽量放到最后
+    # Defer all tl.store until the end
     # =========================
     tl.store(p_o_0, b_o_0.to(p_o.dtype.element_ty), mask=mask_bv)
     tl.store(p_o_1, b_o_1.to(p_o.dtype.element_ty), mask=mask_bv)
     tl.store(p_o_2, b_o_2.to(p_o.dtype.element_ty), mask=mask_bv)
     tl.store(p_o_3, b_o_3.to(p_o.dtype.element_ty), mask=mask_bv)
 
-    # 如需继续使用循环后的量与指针，可在最后再更新原始变量
+    # If later iterations need post-loop values/pointers, update base variables at the end
     b_h = b_h_4
     # p_q = p_q_3 + (-K if REVERSE else K)
     # p_k = p_k_3 + (-K if REVERSE else K)
