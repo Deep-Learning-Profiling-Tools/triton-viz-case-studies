@@ -14,6 +14,7 @@ CASE_DIRS = [
     "fused_rwkv6_kernel",
     "fused_recurrent_retention",
     "diag_ssm_triton",
+    "fast_rope_embedding",
 ]
 
 

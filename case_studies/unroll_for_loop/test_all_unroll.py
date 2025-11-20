@@ -26,6 +26,10 @@ fr_optimized = _load_module("frr_optimized", "fused_recurrent_retention/optimize
 frd_baseline = _load_module("frd_baseline", "fused_recurrent_delta/baseline.py")
 frd_optimized = _load_module("frd_optimized", "fused_recurrent_delta/optimized.py")
 
+# fast_rope_embedding modules
+fre_baseline = _load_module("fre_baseline", "fast_rope_embedding/baseline.py")
+fre_optimized = _load_module("fre_optimized", "fast_rope_embedding/optimized.py")
+
 
 def _report(title: str, ok: bool):
     mark = "✓" if ok else "✗"
@@ -272,12 +276,57 @@ def test_fused_recurrent_delta():
     return delta_ok
 
 
+def test_fast_rope_embedding():
+    print("\n" + "=" * 80)
+    print("Testing Fast RoPE Embedding (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    batch_size, seq_len, n_heads, head_dim = 2, 4, 8, 16
+    rtol, atol = 1e-5, 1e-6
+
+    q = torch.randn(batch_size, n_heads, seq_len, head_dim, dtype=torch.float32, device="cuda", requires_grad=True)
+    k = torch.randn(batch_size, n_heads, seq_len, head_dim, dtype=torch.float32, device="cuda", requires_grad=True)
+    q_opt = q.detach().clone().requires_grad_(True)
+    k_opt = k.detach().clone().requires_grad_(True)
+
+    cos = torch.randn(seq_len, head_dim // 2, dtype=torch.float32, device="cuda")
+    sin = torch.randn(seq_len, head_dim // 2, dtype=torch.float32, device="cuda")
+
+    q_out_base, k_out_base = fre_baseline.fast_rope_embedding(q, k, cos, sin)
+    q_out_opt, k_out_opt = fre_optimized.fast_rope_embedding(q_opt, k_opt, cos, sin)
+
+    q_fwd_ok = torch.allclose(q_out_base, q_out_opt, rtol=rtol, atol=atol)
+    k_fwd_ok = torch.allclose(k_out_base, k_out_opt, rtol=rtol, atol=atol)
+    if not q_fwd_ok:
+        print("RoPE Q forward max diff:", torch.max(torch.abs(q_out_base - q_out_opt)).item())
+    if not k_fwd_ok:
+        print("RoPE K forward max diff:", torch.max(torch.abs(k_out_base - k_out_opt)).item())
+
+    (q_out_base.mean() + k_out_base.mean()).backward()
+    (q_out_opt.mean() + k_out_opt.mean()).backward()
+
+    q_grad_ok = torch.allclose(q.grad, q_opt.grad, rtol=rtol, atol=atol)
+    k_grad_ok = torch.allclose(k.grad, k_opt.grad, rtol=rtol, atol=atol)
+    if not q_grad_ok:
+        print("RoPE Q grad max diff:", torch.max(torch.abs(q.grad - q_opt.grad)).item())
+    if not k_grad_ok:
+        print("RoPE K grad max diff:", torch.max(torch.abs(k.grad - k_opt.grad)).item())
+
+    rope_ok = q_fwd_ok and k_fwd_ok and q_grad_ok and k_grad_ok
+    _report("Fast RoPE embedding", rope_ok)
+    return rope_ok
+
+
 def main():
     diag_ok = test_diag_ssm()
     retention_ok = test_fused_recurrent_retention()
     delta_ok = test_fused_recurrent_delta()
+    rope_ok = test_fast_rope_embedding()
 
-    all_ok = diag_ok and retention_ok and delta_ok
+    all_ok = diag_ok and retention_ok and delta_ok and rope_ok
     print("\n" + "=" * 80)
     print("Overall result:", "PASSED" if all_ok else "FAILED")
     print("=" * 80)
