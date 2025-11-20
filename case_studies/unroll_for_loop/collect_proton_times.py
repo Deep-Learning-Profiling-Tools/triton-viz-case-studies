@@ -99,7 +99,8 @@ def main() -> None:
 
     for folder in subdirs:
         per_file_times = {}
-        py_files = sorted(folder.glob("*.py"))
+        py_files = [folder / "baseline.py", folder / "optimized.py"]
+        py_files = [f for f in py_files if f.exists()]
         for py_file in py_files:
             kernels = find_triton_kernels(py_file)
             if not kernels:
