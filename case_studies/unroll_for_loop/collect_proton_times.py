@@ -9,6 +9,12 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
+CASE_DIRS = [
+    "fused_recurrent_delta",
+    "fused_rwkv6_kernel",
+    "fused_recurrent_retention",
+]
+
 
 def find_triton_kernels(py_file: Path) -> List[str]:
     """
@@ -82,7 +88,11 @@ def parse_kernel_times(hatchet_file: Path, kernels: Iterable[str]) -> Tuple[floa
 
 def main() -> None:
     root = Path(__file__).resolve().parent
-    subdirs = sorted(path for path in root.iterdir() if path.is_dir())
+    expected_dirs = [root / name for name in CASE_DIRS]
+    subdirs = [path for path in expected_dirs if path.is_dir()]
+    missing = [path.name for path in expected_dirs if not path.is_dir()]
+    for name in missing:
+        print(f"Skipping missing case directory: {name}", file=sys.stderr)
     rows = []
 
     for folder in subdirs:
