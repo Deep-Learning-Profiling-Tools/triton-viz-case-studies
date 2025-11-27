@@ -2,3 +2,4 @@
 __pycache__/
 ablation_studies/profiler/profiler_ablation_*/
 triton_profiler_results/
+case_studies/unroll_for_loop/proton_times.csv
