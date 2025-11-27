@@ -14,6 +14,7 @@ CASE_NAMES = [
     "flash_decode2_llama",
     "iv_dependent_matmul",
     "rmsnorm_fused",
+    "rmsnorm_fused_llama",
 ]
 
 
@@ -52,6 +53,10 @@ ivdm_optimized = _load_module("ivdm_optimized", "iv_dependent_matmul/optimized.p
 # rmsnorm_fused modules
 rmsn_baseline = _load_module("rmsn_baseline", "rmsnorm_fused/baseline.py")
 rmsn_optimized = _load_module("rmsn_optimized", "rmsnorm_fused/optimized.py")
+
+# rmsnorm_fused_llama modules
+rmsnll_baseline = _load_module("rmsnll_baseline", "rmsnorm_fused_llama/baseline.py")
+rmsnll_optimized = _load_module("rmsnll_optimized", "rmsnorm_fused_llama/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -471,6 +476,40 @@ def test_rmsnorm_fused():
     return all_ok
 
 
+def test_rmsnorm_fused_llama():
+    print("\n" + "=" * 80)
+    print("Testing RMSNorm Fused LLaMA (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-3, 1e-3  # fp16 output needs looser tolerance
+    all_ok = True
+    eps = 1e-5
+
+    test_cases = [
+        ("small_input", (2, 64)),
+        ("medium_input", (4, 128)),
+    ]
+
+    for name, shape in test_cases:
+        x = torch.randn(*shape, dtype=torch.float16, device="cuda")
+        weight = torch.randn(shape[-1], dtype=torch.float16, device="cuda")
+
+        y_base = rmsnll_baseline.rmsnorm_forward(x, weight, eps)
+        y_opt = rmsnll_optimized.rmsnorm_forward(x, weight, eps)
+
+        ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(y_base.float() - y_opt.float())).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"RMSNorm Fused LLaMA {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -479,6 +518,7 @@ TEST_FUNCS = {
     "flash_decode2_llama": test_flash_decode2_llama,
     "iv_dependent_matmul": test_iv_dependent_matmul,
     "rmsnorm_fused": test_rmsnorm_fused,
+    "rmsnorm_fused_llama": test_rmsnorm_fused_llama,
 }
 
 

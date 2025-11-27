@@ -19,6 +19,7 @@ CASE_DIRS = [
     "flash_decode2_llama",
     "iv_dependent_matmul",
     "rmsnorm_fused",
+    "rmsnorm_fused_llama",
 ]
 
 
