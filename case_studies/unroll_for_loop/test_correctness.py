@@ -17,6 +17,8 @@ CASE_NAMES = [
     "rmsnorm_fused_llama",
     "rmsnorm_implementation",
     "layernorm_fwd_triton",
+    "var_len_copy",
+    "matmul_leakyrelu",
 ]
 
 
@@ -67,6 +69,14 @@ rmsni_optimized = _load_module("rmsni_optimized", "rmsnorm_implementation/optimi
 # layernorm_fwd_triton modules
 lnfwd_baseline = _load_module("lnfwd_baseline", "layernorm_fwd_triton/baseline.py")
 lnfwd_optimized = _load_module("lnfwd_optimized", "layernorm_fwd_triton/optimized.py")
+
+# var_len_copy modules
+vlc_baseline = _load_module("vlc_baseline", "var_len_copy/baseline.py")
+vlc_optimized = _load_module("vlc_optimized", "var_len_copy/optimized.py")
+
+# matmul_leakyrelu modules
+mmlr_baseline = _load_module("mmlr_baseline", "matmul_leakyrelu/baseline.py")
+mmlr_optimized = _load_module("mmlr_optimized", "matmul_leakyrelu/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -599,6 +609,79 @@ def test_layernorm_fwd_triton():
     return all_ok
 
 
+def test_var_len_copy():
+    print("\n" + "=" * 80)
+    print("Testing Var Len Copy (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    # Test with lengths that fit in one BLOCK_SIZE (256)
+    old_a_start = torch.tensor([0, 100, 300], dtype=torch.int32, device="cuda")
+    old_a_len = torch.tensor([50, 100, 200], dtype=torch.int32, device="cuda")
+    old_a_location = torch.arange(500, dtype=torch.float32, device="cuda")
+    new_a_start = torch.tensor([0, 60, 260], dtype=torch.int32, device="cuda")
+
+    new_a_location_base = torch.zeros(500, dtype=torch.float32, device="cuda")
+    new_a_location_opt = torch.zeros(500, dtype=torch.float32, device="cuda")
+
+    vlc_baseline.launch_var_len_copy_triton(
+        old_a_start, old_a_len, old_a_location, new_a_start, new_a_location_base
+    )
+    vlc_optimized.launch_var_len_copy_triton(
+        old_a_start, old_a_len, old_a_location, new_a_start, new_a_location_opt
+    )
+
+    ok = torch.allclose(new_a_location_base, new_a_location_opt)
+    if not ok:
+        diff = torch.max(torch.abs(new_a_location_base - new_a_location_opt)).item()
+        print(f"Max diff: {diff:.2e}")
+
+    _report("Var Len Copy", ok)
+    return ok
+
+
+def test_matmul_leakyrelu():
+    print("\n" + "=" * 80)
+    print("Testing MatMul LeakyReLU (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-3, 1e-3  # fp16 output
+    all_ok = True
+
+    M, K, N = 64, 128, 64
+    a = torch.randn((M, K), device="cuda", dtype=torch.float16)
+    b = torch.randn((K, N), device="cuda", dtype=torch.float16)
+
+    # Test with leaky_relu activation
+    c_base_lr = mmlr_baseline.matmul(a, b, activation="leaky_relu")
+    c_opt_lr = mmlr_optimized.matmul(a, b, activation="leaky_relu")
+
+    ok_lr = torch.allclose(c_base_lr, c_opt_lr, rtol=rtol, atol=atol)
+    if not ok_lr:
+        diff = torch.max(torch.abs(c_base_lr.float() - c_opt_lr.float())).item()
+        print(f"leaky_relu max diff: {diff:.2e}")
+    _report("MatMul LeakyReLU (leaky_relu)", ok_lr)
+    all_ok = all_ok and ok_lr
+
+    # Test without activation
+    c_base_no = mmlr_baseline.matmul(a, b, activation="")
+    c_opt_no = mmlr_optimized.matmul(a, b, activation="")
+
+    ok_no = torch.allclose(c_base_no, c_opt_no, rtol=rtol, atol=atol)
+    if not ok_no:
+        diff = torch.max(torch.abs(c_base_no.float() - c_opt_no.float())).item()
+        print(f"no activation max diff: {diff:.2e}")
+    _report("MatMul LeakyReLU (no activation)", ok_no)
+    all_ok = all_ok and ok_no
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -610,6 +693,8 @@ TEST_FUNCS = {
     "rmsnorm_fused_llama": test_rmsnorm_fused_llama,
     "rmsnorm_implementation": test_rmsnorm_implementation,
     "layernorm_fwd_triton": test_layernorm_fwd_triton,
+    "var_len_copy": test_var_len_copy,
+    "matmul_leakyrelu": test_matmul_leakyrelu,
 }
 
 
