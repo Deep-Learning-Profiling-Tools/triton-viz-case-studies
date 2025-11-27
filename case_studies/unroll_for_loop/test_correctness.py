@@ -16,6 +16,7 @@ CASE_NAMES = [
     "rmsnorm_fused",
     "rmsnorm_fused_llama",
     "rmsnorm_implementation",
+    "layernorm_fwd_triton",
 ]
 
 
@@ -62,6 +63,10 @@ rmsnll_optimized = _load_module("rmsnll_optimized", "rmsnorm_fused_llama/optimiz
 # rmsnorm_implementation modules
 rmsni_baseline = _load_module("rmsni_baseline", "rmsnorm_implementation/baseline.py")
 rmsni_optimized = _load_module("rmsni_optimized", "rmsnorm_implementation/optimized.py")
+
+# layernorm_fwd_triton modules
+lnfwd_baseline = _load_module("lnfwd_baseline", "layernorm_fwd_triton/baseline.py")
+lnfwd_optimized = _load_module("lnfwd_optimized", "layernorm_fwd_triton/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -560,6 +565,40 @@ def test_rmsnorm_implementation():
     return all_ok
 
 
+def test_layernorm_fwd_triton():
+    print("\n" + "=" * 80)
+    print("Testing LayerNorm Forward Triton (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-5, 1e-6
+    all_ok = True
+    eps = 1e-5
+
+    test_cases = [
+        ("N=128", (2, 3, 128)),
+        ("N=256", (2, 3, 256)),
+    ]
+
+    for name, shape in test_cases:
+        X = torch.randn(*shape, dtype=torch.float32, device="cuda")
+        W = torch.randn(shape[1], shape[2], dtype=torch.float32, device="cuda")
+
+        y_base = lnfwd_baseline.layernorm_forward(X, W, eps)
+        y_opt = lnfwd_optimized.layernorm_forward(X, W, eps)
+
+        ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(y_base - y_opt)).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"LayerNorm Forward {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -570,6 +609,7 @@ TEST_FUNCS = {
     "rmsnorm_fused": test_rmsnorm_fused,
     "rmsnorm_fused_llama": test_rmsnorm_fused_llama,
     "rmsnorm_implementation": test_rmsnorm_implementation,
+    "layernorm_fwd_triton": test_layernorm_fwd_triton,
 }
 
 
