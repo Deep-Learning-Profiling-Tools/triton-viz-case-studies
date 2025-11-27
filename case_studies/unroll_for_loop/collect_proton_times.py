@@ -22,6 +22,7 @@ CASE_DIRS = [
     "rmsnorm_fused_llama",
     "rmsnorm_implementation",
     "layernorm_fwd_triton",
+    "var_len_copy",
 ]
 
 
