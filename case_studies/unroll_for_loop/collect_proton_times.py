@@ -27,6 +27,7 @@ CASE_DIRS = [
     "flash_decode2_phi",
     "kldiv_ops",
     "mean_reduction",
+    "softmax_optimize",
 ]
 
 

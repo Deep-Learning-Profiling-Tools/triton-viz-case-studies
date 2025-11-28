@@ -22,6 +22,7 @@ CASE_NAMES = [
     "flash_decode2_phi",
     "kldiv_ops",
     "mean_reduction",
+    "softmax_optimize",
 ]
 
 
@@ -92,6 +93,10 @@ kldiv_optimized = _load_module("kldiv_optimized", "kldiv_ops/optimized.py")
 # mean_reduction modules
 meanred_baseline = _load_module("meanred_baseline", "mean_reduction/baseline.py")
 meanred_optimized = _load_module("meanred_optimized", "mean_reduction/optimized.py")
+
+# softmax_optimize modules
+smopt_baseline = _load_module("smopt_baseline", "softmax_optimize/baseline.py")
+smopt_optimized = _load_module("smopt_optimized", "softmax_optimize/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -812,6 +817,39 @@ def test_mean_reduction():
     return all_ok
 
 
+def test_softmax_optimize():
+    print("\n" + "=" * 80)
+    print("Testing Softmax Optimize (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-5, 1e-6
+    all_ok = True
+
+    # Test with small N that fits in single TILE_N iteration
+    test_cases = [
+        ("M=128, N=128", (128, 128)),
+        ("M=64, N=256", (64, 256)),
+    ]
+
+    for name, shape in test_cases:
+        x = torch.randn(*shape, dtype=torch.float32, device="cuda")
+
+        y_base = smopt_baseline.softmax(x)
+        y_opt = smopt_optimized.softmax(x)
+
+        ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(y_base - y_opt)).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"Softmax Optimize {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -828,6 +866,7 @@ TEST_FUNCS = {
     "flash_decode2_phi": test_flash_decode2_phi,
     "kldiv_ops": test_kldiv_ops,
     "mean_reduction": test_mean_reduction,
+    "softmax_optimize": test_softmax_optimize,
 }
 
 
