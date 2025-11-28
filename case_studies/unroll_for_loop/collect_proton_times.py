@@ -31,6 +31,7 @@ CASE_DIRS = [
     "triton_conv2d_fwd",
     "triton_matmul",
     "matmul_triton1",
+    "lora_expand_gemv",
 ]
 
 

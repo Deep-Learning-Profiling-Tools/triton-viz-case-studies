@@ -26,6 +26,7 @@ CASE_NAMES = [
     "triton_conv2d_fwd",
     "triton_matmul",
     "matmul_triton1",
+    "lora_expand_gemv",
 ]
 
 
@@ -112,6 +113,10 @@ trmm_optimized = _load_module("trmm_optimized", "triton_matmul/optimized.py")
 # matmul_triton1 modules
 mm1_baseline = _load_module("mm1_baseline", "matmul_triton1/baseline.py")
 mm1_optimized = _load_module("mm1_optimized", "matmul_triton1/optimized.py")
+
+# lora_expand_gemv modules
+lora_baseline = _load_module("lora_baseline", "lora_expand_gemv/baseline.py")
+lora_optimized = _load_module("lora_optimized", "lora_expand_gemv/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -961,6 +966,43 @@ def test_matmul_triton1():
     return all_ok
 
 
+def test_lora_expand_gemv():
+    print("\n" + "=" * 80)
+    print("Testing LoRA Expand GEMV (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-3, 1e-3  # fp16 output
+    all_ok = True
+
+    batch_size = 4
+    hidden_size = 128
+    rank = 64
+    lora_num = 3
+
+    inputs = torch.randn(batch_size, hidden_size, dtype=torch.float16, device="cuda")
+    lora_b_weights = torch.randn(lora_num, rank, hidden_size, dtype=torch.float16, device="cuda")
+    lora_indices_tensor = torch.tensor([0, 1, -1, 2], dtype=torch.int32, device="cuda")
+
+    # Test with add_inputs=False
+    output_base = torch.zeros(batch_size, rank, dtype=torch.float16, device="cuda")
+    output_opt = torch.zeros(batch_size, rank, dtype=torch.float16, device="cuda")
+
+    lora_baseline._bgmv_expand(inputs, lora_b_weights, output_base, lora_indices_tensor, add_inputs=False)
+    lora_optimized._bgmv_expand(inputs, lora_b_weights, output_opt, lora_indices_tensor, add_inputs=False)
+
+    ok = torch.allclose(output_base, output_opt, rtol=rtol, atol=atol)
+    if not ok:
+        diff = torch.max(torch.abs(output_base.float() - output_opt.float())).item()
+        print(f"add_inputs=False max diff: {diff:.2e}")
+    _report("LoRA Expand GEMV (add_inputs=False)", ok)
+    all_ok = all_ok and ok
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -981,6 +1023,7 @@ TEST_FUNCS = {
     "triton_conv2d_fwd": test_triton_conv2d_fwd,
     "triton_matmul": test_triton_matmul,
     "matmul_triton1": test_matmul_triton1,
+    "lora_expand_gemv": test_lora_expand_gemv,
 }
 
 
