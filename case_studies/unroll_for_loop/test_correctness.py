@@ -23,6 +23,7 @@ CASE_NAMES = [
     "kldiv_ops",
     "mean_reduction",
     "softmax_optimize",
+    "triton_conv2d_fwd",
 ]
 
 
@@ -97,6 +98,10 @@ meanred_optimized = _load_module("meanred_optimized", "mean_reduction/optimized.
 # softmax_optimize modules
 smopt_baseline = _load_module("smopt_baseline", "softmax_optimize/baseline.py")
 smopt_optimized = _load_module("smopt_optimized", "softmax_optimize/optimized.py")
+
+# triton_conv2d_fwd modules
+conv2d_baseline = _load_module("conv2d_baseline", "triton_conv2d_fwd/baseline.py")
+conv2d_optimized = _load_module("conv2d_optimized", "triton_conv2d_fwd/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -850,6 +855,45 @@ def test_softmax_optimize():
     return all_ok
 
 
+def test_triton_conv2d_fwd():
+    print("\n" + "=" * 80)
+    print("Testing Triton Conv2D Forward (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-4, 1e-4
+    all_ok = True
+
+    # Test case 1: Basic 3x3 conv
+    input_t = torch.randn(1, 3, 32, 32, device="cuda", dtype=torch.float32)
+    weight_t = torch.randn(16, 3, 3, 3, device="cuda", dtype=torch.float32)
+
+    y_base = conv2d_baseline.conv2d_forward(input_t, weight_t, 3, 3, 1, 1, 0, 0, 1)
+    y_opt = conv2d_optimized.conv2d_forward(input_t, weight_t, 3, 3, 1, 1, 0, 0, 1)
+
+    ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+    if not ok:
+        diff = torch.max(torch.abs(y_base - y_opt)).item()
+        print(f"3x3 conv max diff: {diff:.2e}")
+    _report("Conv2D 3x3 basic", ok)
+    all_ok = all_ok and ok
+
+    # Test case 2: With padding and stride
+    y_base2 = conv2d_baseline.conv2d_forward(input_t, weight_t, 3, 3, 2, 2, 1, 1, 1)
+    y_opt2 = conv2d_optimized.conv2d_forward(input_t, weight_t, 3, 3, 2, 2, 1, 1, 1)
+
+    ok2 = torch.allclose(y_base2, y_opt2, rtol=rtol, atol=atol)
+    if not ok2:
+        diff = torch.max(torch.abs(y_base2 - y_opt2)).item()
+        print(f"3x3 with stride/pad max diff: {diff:.2e}")
+    _report("Conv2D 3x3 stride/pad", ok2)
+    all_ok = all_ok and ok2
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -867,6 +911,7 @@ TEST_FUNCS = {
     "kldiv_ops": test_kldiv_ops,
     "mean_reduction": test_mean_reduction,
     "softmax_optimize": test_softmax_optimize,
+    "triton_conv2d_fwd": test_triton_conv2d_fwd,
 }
 
 

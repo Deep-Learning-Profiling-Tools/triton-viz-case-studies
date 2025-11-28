@@ -28,6 +28,7 @@ CASE_DIRS = [
     "kldiv_ops",
     "mean_reduction",
     "softmax_optimize",
+    "triton_conv2d_fwd",
 ]
 
 
