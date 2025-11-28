@@ -26,6 +26,7 @@ CASE_DIRS = [
     "matmul_leakyrelu",
     "flash_decode2_phi",
     "kldiv_ops",
+    "mean_reduction",
 ]
 
 

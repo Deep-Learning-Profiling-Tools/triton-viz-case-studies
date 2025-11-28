@@ -21,6 +21,7 @@ CASE_NAMES = [
     "matmul_leakyrelu",
     "flash_decode2_phi",
     "kldiv_ops",
+    "mean_reduction",
 ]
 
 
@@ -87,6 +88,10 @@ fdphi_optimized = _load_module("fdphi_optimized", "flash_decode2_phi/optimized.p
 # kldiv_ops modules
 kldiv_baseline = _load_module("kldiv_baseline", "kldiv_ops/baseline.py")
 kldiv_optimized = _load_module("kldiv_optimized", "kldiv_ops/optimized.py")
+
+# mean_reduction modules
+meanred_baseline = _load_module("meanred_baseline", "mean_reduction/baseline.py")
+meanred_optimized = _load_module("meanred_optimized", "mean_reduction/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -768,6 +773,45 @@ def test_kldiv_ops():
     return all_ok
 
 
+def test_mean_reduction():
+    print("\n" + "=" * 80)
+    print("Testing Mean Reduction (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-5, 1e-6
+    all_ok = True
+
+    # Test with dims [1, 2] on shape (2, 3, 4, 5) -> N = 3*4 = 12
+    # This matches the optimized version's special handling
+    x = torch.randn(2, 3, 4, 5, dtype=torch.float32, device="cuda")
+
+    y_base = meanred_baseline.mean_dim(x, [1, 2])
+    y_opt = meanred_optimized.mean_dim(x, [1, 2])
+
+    ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+    if not ok:
+        diff = torch.max(torch.abs(y_base - y_opt)).item()
+        print(f"dims=[1,2] max diff: {diff:.2e}")
+    _report("Mean Reduction dims=[1,2]", ok)
+    all_ok = all_ok and ok
+
+    # Test with keepdim=True
+    y_base_kd = meanred_baseline.mean_dim(x, [1, 2], keepdim=True)
+    y_opt_kd = meanred_optimized.mean_dim(x, [1, 2], keepdim=True)
+
+    ok_kd = torch.allclose(y_base_kd, y_opt_kd, rtol=rtol, atol=atol)
+    if not ok_kd:
+        diff = torch.max(torch.abs(y_base_kd - y_opt_kd)).item()
+        print(f"keepdim=True max diff: {diff:.2e}")
+    _report("Mean Reduction keepdim=True", ok_kd)
+    all_ok = all_ok and ok_kd
+
+    return all_ok
+
+
 TEST_FUNCS = {
     "diag_ssm_triton": test_diag_ssm,
     "fused_recurrent_retention": test_fused_recurrent_retention,
@@ -783,6 +827,7 @@ TEST_FUNCS = {
     "matmul_leakyrelu": test_matmul_leakyrelu,
     "flash_decode2_phi": test_flash_decode2_phi,
     "kldiv_ops": test_kldiv_ops,
+    "mean_reduction": test_mean_reduction,
 }
 
 
