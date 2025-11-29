@@ -33,6 +33,7 @@ STUDY_CASES: Dict[str, List[str]] = {
     "mask_percentage": [
         "quantize_kv_transform",
         "context_attn_llama",
+        "context_attn_fwd",
     ],
 }
 
@@ -118,6 +119,9 @@ qkv_optimized = _load_module("qkv_optimized", "mask_percentage/quantize_kv_trans
 
 ctx_attn_baseline = _load_module("ctx_attn_baseline", "mask_percentage/context_attn_llama/baseline.py")
 ctx_attn_optimized = _load_module("ctx_attn_optimized", "mask_percentage/context_attn_llama/optimized.py")
+
+ctx_fwd_baseline = _load_module("ctx_fwd_baseline", "mask_percentage/context_attn_fwd/baseline.py")
+ctx_fwd_optimized = _load_module("ctx_fwd_optimized", "mask_percentage/context_attn_fwd/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -1116,6 +1120,51 @@ def test_context_attn_llama():
     return all_ok
 
 
+def test_context_attn_fwd():
+    print("\n" + "=" * 80)
+    print("Testing Context Attention Forward (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-2, 1e-2  # fp16 attention needs looser tolerance
+    all_ok = True
+
+    # Use small parameters for testing
+    Z, H, N_CTX, D_HEAD = 2, 4, 128, 64
+    dtype = torch.float16
+
+    q = torch.randn((Z * N_CTX, H, D_HEAD), dtype=dtype, device="cuda")
+    # K and V have shape (batch, heads, seq_len, head_dim)
+    k = torch.randn((Z, H, N_CTX, D_HEAD), dtype=dtype, device="cuda")
+    v = torch.randn((Z, H, N_CTX, D_HEAD), dtype=dtype, device="cuda")
+
+    max_input_len = N_CTX
+    b_start_loc = torch.arange(0, Z * N_CTX, N_CTX, dtype=torch.int32, device="cuda")
+    b_seq_len = torch.full((Z,), N_CTX, dtype=torch.int32, device="cuda")
+    b_prompt_cache_len = torch.zeros(Z, dtype=torch.int32, device="cuda")
+
+    o_base = torch.zeros((Z * N_CTX, H, D_HEAD), dtype=dtype, device="cuda")
+    o_opt = torch.zeros((Z * N_CTX, H, D_HEAD), dtype=dtype, device="cuda")
+
+    ctx_fwd_baseline.context_attention_fwd_ppl_int8kv(
+        q, k, v, o_base, b_start_loc, b_seq_len, max_input_len, b_prompt_cache_len
+    )
+    ctx_fwd_optimized.context_attention_fwd_ppl_int8kv(
+        q, k, v, o_opt, b_start_loc, b_seq_len, max_input_len, b_prompt_cache_len
+    )
+
+    ok = torch.allclose(o_base, o_opt, rtol=rtol, atol=atol)
+    if not ok:
+        diff = torch.max(torch.abs(o_base.float() - o_opt.float())).item()
+        print(f"Max diff: {diff:.2e}")
+    _report("Context Attention Forward", ok)
+    all_ok = all_ok and ok
+
+    return all_ok
+
+
 # ============================================================================
 # Test registry organized by study
 # ============================================================================
@@ -1146,6 +1195,7 @@ STUDY_TEST_FUNCS: Dict[str, Dict[str, Callable[[], bool]]] = {
     "mask_percentage": {
         "quantize_kv_transform": test_quantize_kv_transform,
         "context_attn_llama": test_context_attn_llama,
+        "context_attn_fwd": test_context_attn_fwd,
     },
 }
 
