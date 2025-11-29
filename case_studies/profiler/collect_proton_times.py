@@ -36,6 +36,7 @@ STUDY_CASES: Dict[str, List[str]] = {
     ],
     "mask_percentage": [
         "quantize_kv_transform",
+        "context_attn_llama",
     ],
 }
 
