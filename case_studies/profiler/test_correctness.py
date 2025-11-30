@@ -36,6 +36,7 @@ STUDY_CASES: Dict[str, List[str]] = {
         "context_attn_fwd",
         "bgmv_shrink_kernel",
         "sin_kernel",
+        "add_value",
     ],
 }
 
@@ -130,6 +131,9 @@ bgmv_shrink_optimized = _load_module("bgmv_shrink_optimized", "mask_percentage/b
 
 sin_kernel_baseline = _load_module("sin_kernel_baseline", "mask_percentage/sin_kernel/baseline.py")
 sin_kernel_optimized = _load_module("sin_kernel_optimized", "mask_percentage/sin_kernel/optimized.py")
+
+add_value_baseline = _load_module("add_value_baseline", "mask_percentage/add_value/baseline.py")
+add_value_optimized = _load_module("add_value_optimized", "mask_percentage/add_value/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -1241,6 +1245,37 @@ def test_sin_kernel():
     return all_ok
 
 
+def test_add_value():
+    print("\n" + "=" * 80)
+    print("Testing Add Value (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-5, 1e-6
+    all_ok = True
+
+    test_cases = [
+        ("small", torch.randn(16, device="cuda")),
+        ("medium", torch.randn(1024, device="cuda")),
+        ("large", torch.randn(4096, device="cuda")),
+    ]
+
+    for name, x in test_cases:
+        y_base = add_value_baseline.puzzle1(x)
+        y_opt = add_value_optimized.puzzle1(x)
+
+        ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(y_base - y_opt)).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"Add Value {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 # ============================================================================
 # Test registry organized by study
 # ============================================================================
@@ -1274,6 +1309,7 @@ STUDY_TEST_FUNCS: Dict[str, Dict[str, Callable[[], bool]]] = {
         "context_attn_fwd": test_context_attn_fwd,
         "bgmv_shrink_kernel": test_bgmv_shrink_kernel,
         "sin_kernel": test_sin_kernel,
+        "add_value": test_add_value,
     },
 }
 
