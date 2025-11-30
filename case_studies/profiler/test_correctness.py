@@ -37,6 +37,7 @@ STUDY_CASES: Dict[str, List[str]] = {
         "bgmv_shrink_kernel",
         "sin_kernel",
         "add_value",
+        "rmsnorm_fused_llama",
     ],
 }
 
@@ -134,6 +135,9 @@ sin_kernel_optimized = _load_module("sin_kernel_optimized", "mask_percentage/sin
 
 add_value_baseline = _load_module("add_value_baseline", "mask_percentage/add_value/baseline.py")
 add_value_optimized = _load_module("add_value_optimized", "mask_percentage/add_value/optimized.py")
+
+mp_rmsnorm_baseline = _load_module("mp_rmsnorm_baseline", "mask_percentage/rmsnorm_fused_llama/baseline.py")
+mp_rmsnorm_optimized = _load_module("mp_rmsnorm_optimized", "mask_percentage/rmsnorm_fused_llama/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -1276,6 +1280,40 @@ def test_add_value():
     return all_ok
 
 
+def test_mp_rmsnorm_fused_llama():
+    print("\n" + "=" * 80)
+    print("Testing RMSNorm Fused LLaMA [mask_percentage] (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-2, 1e-2  # fp16 output
+    all_ok = True
+    eps = 1e-5
+
+    test_cases = [
+        ("small", (2, 64)),
+        ("medium", (4, 128)),
+    ]
+
+    for name, shape in test_cases:
+        x = torch.randn(*shape, dtype=torch.float16, device="cuda")
+        weight = torch.randn(shape[-1], dtype=torch.float16, device="cuda")
+
+        y_base = mp_rmsnorm_baseline.rmsnorm_forward(x, weight, eps)
+        y_opt = mp_rmsnorm_optimized.rmsnorm_forward(x, weight, eps)
+
+        ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(y_base.float() - y_opt.float())).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"RMSNorm Fused LLaMA [mp] {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 # ============================================================================
 # Test registry organized by study
 # ============================================================================
@@ -1310,6 +1348,7 @@ STUDY_TEST_FUNCS: Dict[str, Dict[str, Callable[[], bool]]] = {
         "bgmv_shrink_kernel": test_bgmv_shrink_kernel,
         "sin_kernel": test_sin_kernel,
         "add_value": test_add_value,
+        "rmsnorm_fused_llama": test_mp_rmsnorm_fused_llama,
     },
 }
 
