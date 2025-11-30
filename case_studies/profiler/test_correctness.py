@@ -43,6 +43,7 @@ STUDY_CASES: Dict[str, List[str]] = {
         "bgmv_expand_slice",
         "dropout_triton",
         "fifth_order_sph_harmonics",
+        "diag_ssm_triton",
     ],
 }
 
@@ -154,6 +155,8 @@ dropout_triton_baseline = _load_module("dropout_triton_baseline", "mask_percenta
 dropout_triton_optimized = _load_module("dropout_triton_optimized", "mask_percentage/dropout_triton/optimized.py")
 fifth_order_sph_baseline = _load_module("fifth_order_sph_baseline", "mask_percentage/fifth_order_sph_harmonics/baseline.py")
 fifth_order_sph_optimized = _load_module("fifth_order_sph_optimized", "mask_percentage/fifth_order_sph_harmonics/optimized.py")
+mp_diag_ssm_baseline = _load_module("mp_diag_ssm_baseline", "mask_percentage/diag_ssm_triton/baseline.py")
+mp_diag_ssm_optimized = _load_module("mp_diag_ssm_optimized", "mask_percentage/diag_ssm_triton/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -1504,6 +1507,46 @@ def test_fifth_order_sph_harmonics():
     return all_ok
 
 
+def test_mp_diag_ssm_triton():
+    print("\n" + "=" * 80)
+    print("Testing Diag SSM Triton (mask_percentage: baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-4, 1e-5
+    all_ok = True
+
+    test_cases = [
+        ("real_small", 2, 3, 5, torch.float32),
+        ("real_medium", 4, 8, 10, torch.float32),
+        ("complex_small", 2, 3, 5, torch.complex64),
+    ]
+
+    for name, batch_size, dim, length, dtype in test_cases:
+        s = torch.randn((batch_size, dim), dtype=dtype, device="cuda")
+        x = torch.randn((length, batch_size, dim), dtype=dtype, device="cuda")
+        Lambda = torch.rand((dim,), dtype=dtype, device="cuda")
+
+        y_base = mp_diag_ssm_baseline.diag_ssm_forward_triton(s, x, Lambda)
+        y_opt = mp_diag_ssm_optimized.diag_ssm_forward_triton(s, x, Lambda)
+
+        if dtype == torch.complex64:
+            ok = torch.allclose(y_base.real, y_opt.real, rtol=rtol, atol=atol) and \
+                 torch.allclose(y_base.imag, y_opt.imag, rtol=rtol, atol=atol)
+        else:
+            ok = torch.allclose(y_base, y_opt, rtol=rtol, atol=atol)
+
+        if not ok:
+            diff = torch.max(torch.abs(y_base - y_opt)).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"Diag SSM {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 # ============================================================================
 # Test registry organized by study
 # ============================================================================
@@ -1544,6 +1587,7 @@ STUDY_TEST_FUNCS: Dict[str, Dict[str, Callable[[], bool]]] = {
         "bgmv_expand_slice": test_bgmv_expand_slice,
         "dropout_triton": test_dropout_triton,
         "fifth_order_sph_harmonics": test_fifth_order_sph_harmonics,
+        "diag_ssm_triton": test_mp_diag_ssm_triton,
     },
 }
 
