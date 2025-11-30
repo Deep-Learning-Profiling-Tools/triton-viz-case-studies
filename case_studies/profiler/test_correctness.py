@@ -41,6 +41,7 @@ STUDY_CASES: Dict[str, List[str]] = {
         "relu_triton_kernel",
         "lora_expand_gemv",
         "bgmv_expand_slice",
+        "dropout_triton",
     ],
 }
 
@@ -148,6 +149,8 @@ mp_lora_expand_gemv_baseline = _load_module("mp_lora_expand_gemv_baseline", "mas
 mp_lora_expand_gemv_optimized = _load_module("mp_lora_expand_gemv_optimized", "mask_percentage/lora_expand_gemv/optimized.py")
 bgmv_expand_slice_baseline = _load_module("bgmv_expand_slice_baseline", "mask_percentage/bgmv_expand_slice/baseline.py")
 bgmv_expand_slice_optimized = _load_module("bgmv_expand_slice_optimized", "mask_percentage/bgmv_expand_slice/optimized.py")
+dropout_triton_baseline = _load_module("dropout_triton_baseline", "mask_percentage/dropout_triton/baseline.py")
+dropout_triton_optimized = _load_module("dropout_triton_optimized", "mask_percentage/dropout_triton/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -1431,6 +1434,40 @@ def test_bgmv_expand_slice():
     return all_ok
 
 
+def test_dropout_triton():
+    print("\n" + "=" * 80)
+    print("Testing Dropout Triton (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-5, 1e-6
+    all_ok = True
+
+    test_cases = [
+        ("small_p0.5", 10, 0.5),
+        ("medium_p0.3", 1024, 0.3),
+        ("large_p0.1", 4096, 0.1),
+    ]
+
+    for name, size, p in test_cases:
+        x = torch.randn(size, device="cuda")
+        x_keep = (torch.rand(size, device="cuda") > p).to(torch.int32)
+
+        out_base = dropout_triton_baseline.dropout(x, x_keep, p)
+        out_opt = dropout_triton_optimized.dropout(x, x_keep, p)
+
+        ok = torch.allclose(out_base, out_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(out_base - out_opt)).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"Dropout Triton {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 # ============================================================================
 # Test registry organized by study
 # ============================================================================
@@ -1469,6 +1506,7 @@ STUDY_TEST_FUNCS: Dict[str, Dict[str, Callable[[], bool]]] = {
         "relu_triton_kernel": test_relu_triton_kernel,
         "lora_expand_gemv": test_mp_lora_expand_gemv,
         "bgmv_expand_slice": test_bgmv_expand_slice,
+        "dropout_triton": test_dropout_triton,
     },
 }
 
