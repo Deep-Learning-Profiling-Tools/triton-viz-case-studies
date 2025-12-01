@@ -45,6 +45,7 @@ STUDY_CASES: Dict[str, List[str]] = {
         "fifth_order_sph_harmonics",
         "diag_ssm_triton",
         "triton_conv2d_fwd",
+        "rotary_transform_ops",
     ],
 }
 
@@ -160,6 +161,8 @@ mp_diag_ssm_baseline = _load_module("mp_diag_ssm_baseline", "mask_percentage/dia
 mp_diag_ssm_optimized = _load_module("mp_diag_ssm_optimized", "mask_percentage/diag_ssm_triton/optimized.py")
 mp_conv2d_baseline = _load_module("mp_conv2d_baseline", "mask_percentage/triton_conv2d_fwd/baseline.py")
 mp_conv2d_optimized = _load_module("mp_conv2d_optimized", "mask_percentage/triton_conv2d_fwd/optimized.py")
+rotary_transform_baseline = _load_module("rotary_transform_baseline", "mask_percentage/rotary_transform_ops/baseline.py")
+rotary_transform_optimized = _load_module("rotary_transform_optimized", "mask_percentage/rotary_transform_ops/optimized.py")
 
 
 def _report(title: str, ok: bool):
@@ -1584,6 +1587,40 @@ def test_mp_triton_conv2d_fwd():
     return all_ok
 
 
+def test_rotary_transform_ops():
+    print("\n" + "=" * 80)
+    print("Testing Rotary Transform Ops (baseline vs optimized)")
+    print("=" * 80)
+
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    rtol, atol = 1e-5, 1e-6
+    all_ok = True
+
+    test_cases = [
+        ("basic", 2, 4, 3, 8),
+        ("larger", 4, 8, 6, 16),
+    ]
+
+    for name, batch, seqlen, nheads, headdim in test_cases:
+        x = torch.randn(batch, seqlen, nheads, headdim, device="cuda", dtype=torch.float32)
+        cos = torch.randn(seqlen, headdim // 2, device="cuda", dtype=torch.float32)
+        sin = torch.randn(seqlen, headdim // 2, device="cuda", dtype=torch.float32)
+
+        out_base = rotary_transform_baseline.apply_rotary(x, cos, sin, seqlen_offsets=0)
+        out_opt = rotary_transform_optimized.apply_rotary(x, cos, sin, seqlen_offsets=0)
+
+        ok = torch.allclose(out_base, out_opt, rtol=rtol, atol=atol)
+        if not ok:
+            diff = torch.max(torch.abs(out_base - out_opt)).item()
+            print(f"{name} max diff: {diff:.2e}")
+        _report(f"Rotary Transform {name}", ok)
+        all_ok = all_ok and ok
+
+    return all_ok
+
+
 # ============================================================================
 # Test registry organized by study
 # ============================================================================
@@ -1626,6 +1663,7 @@ STUDY_TEST_FUNCS: Dict[str, Dict[str, Callable[[], bool]]] = {
         "fifth_order_sph_harmonics": test_fifth_order_sph_harmonics,
         "diag_ssm_triton": test_mp_diag_ssm_triton,
         "triton_conv2d_fwd": test_mp_triton_conv2d_fwd,
+        "rotary_transform_ops": test_rotary_transform_ops,
     },
 }
 
