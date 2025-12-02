@@ -246,26 +246,13 @@ def main() -> None:
             header = ["Case Name"]
             header += [f"baseline_run{i+1}" for i in range(NUM_RUNS)]
             header += [f"optimized_run{i+1}" for i in range(NUM_RUNS)]
-            header += ["speedup"]
             writer.writerow(header)
             for row in rows:
                 baseline = row["baseline"]
                 optimized = row["optimized"]
-                # Calculate speedup as mean(baseline) / mean(optimized)
-                if baseline and optimized:
-                    baseline_mean = sum(baseline) / len(baseline)
-                    optimized_mean = sum(optimized) / len(optimized)
-                    if optimized_mean > 0:
-                        speedup = f"{baseline_mean / optimized_mean:.2f}x"
-                    else:
-                        speedup = ""
-                else:
-                    speedup = ""
-                # Build row with all individual run values
                 csv_row = [row["case_name"]]
                 csv_row += [f"{t:.3f}" if baseline else "" for t in (baseline if baseline else [""] * NUM_RUNS)]
                 csv_row += [f"{t:.3f}" if optimized else "" for t in (optimized if optimized else [""] * NUM_RUNS)]
-                csv_row += [speedup]
                 writer.writerow(csv_row)
 
         print(f"Wrote {csv_path}")
