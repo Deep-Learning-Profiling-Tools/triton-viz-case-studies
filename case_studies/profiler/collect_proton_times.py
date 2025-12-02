@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
+NUM_RUNS = 5
+
 STUDY_CASES: Dict[str, List[str]] = {
     "unroll_for_loop": [
         "fused_recurrent_delta",
@@ -220,40 +222,51 @@ def main() -> None:
                     continue
 
                 print(f"Profiling {py_file} with kernels {', '.join(kernels)}")
-                hatchet_file = run_proton(py_file)
-                total_time, missing = parse_kernel_times(hatchet_file, kernels)
-                per_file_times[py_file.stem] = total_time
-
-                missing_note = f" (missing timings for: {', '.join(missing)})" if missing else ""
-                print(f"  -> {total_time:.3f} us{missing_note}")
+                times = []
+                for run in range(NUM_RUNS):
+                    print(f"  Run {run + 1}/{NUM_RUNS}...", end=" ")
+                    hatchet_file = run_proton(py_file)
+                    total_time, missing = parse_kernel_times(hatchet_file, kernels)
+                    times.append(total_time)
+                    missing_note = f" (missing: {', '.join(missing)})" if missing else ""
+                    print(f"{total_time:.3f} us{missing_note}")
+                per_file_times[py_file.stem] = times
 
             rows.append(
                 {
                     "case_name": folder.name,
-                    "baseline": per_file_times.get("baseline", ""),
-                    "optimized": per_file_times.get("optimized", ""),
+                    "baseline": per_file_times.get("baseline", []),
+                    "optimized": per_file_times.get("optimized", []),
                 }
             )
 
         csv_path = study_root / "proton_times.csv"
         with csv_path.open("w", newline="") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["Case Name", "baseline_time_us", "optimized_time_us", "speedup"])
+            header = ["Case Name"]
+            header += [f"baseline_run{i+1}" for i in range(NUM_RUNS)]
+            header += [f"optimized_run{i+1}" for i in range(NUM_RUNS)]
+            header += ["speedup"]
+            writer.writerow(header)
             for row in rows:
                 baseline = row["baseline"]
                 optimized = row["optimized"]
-                if baseline != "" and optimized != "" and optimized > 0:
-                    speedup = f"{baseline / optimized:.2f}x"
+                # Calculate speedup as mean(baseline) / mean(optimized)
+                if baseline and optimized:
+                    baseline_mean = sum(baseline) / len(baseline)
+                    optimized_mean = sum(optimized) / len(optimized)
+                    if optimized_mean > 0:
+                        speedup = f"{baseline_mean / optimized_mean:.2f}x"
+                    else:
+                        speedup = ""
                 else:
                     speedup = ""
-                writer.writerow(
-                    [
-                        row["case_name"],
-                        "" if baseline == "" else f"{baseline:.3f}",
-                        "" if optimized == "" else f"{optimized:.3f}",
-                        speedup,
-                    ]
-                )
+                # Build row with all individual run values
+                csv_row = [row["case_name"]]
+                csv_row += [f"{t:.3f}" if baseline else "" for t in (baseline if baseline else [""] * NUM_RUNS)]
+                csv_row += [f"{t:.3f}" if optimized else "" for t in (optimized if optimized else [""] * NUM_RUNS)]
+                csv_row += [speedup]
+                writer.writerow(csv_row)
 
         print(f"Wrote {csv_path}")
 
