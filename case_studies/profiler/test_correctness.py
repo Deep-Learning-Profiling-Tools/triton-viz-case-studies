@@ -14,7 +14,6 @@ STUDY_CASES: Dict[str, List[str]] = {
         "fused_recurrent_delta",
         "fast_rope_embedding",
         "flash_decode2_llama",
-        "iv_dependent_matmul",
         "rmsnorm_fused",
         "rmsnorm_fused_llama",
         "rmsnorm_implementation",

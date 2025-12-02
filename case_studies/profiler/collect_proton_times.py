@@ -20,7 +20,6 @@ STUDY_CASES: Dict[str, List[str]] = {
         "diag_ssm_triton",
         "fast_rope_embedding",
         "flash_decode2_llama",
-        "iv_dependent_matmul",
         "rmsnorm_fused",
         "rmsnorm_fused_llama",
         "rmsnorm_implementation",
