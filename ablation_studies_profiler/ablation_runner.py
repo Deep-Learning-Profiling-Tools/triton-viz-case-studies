@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Profiler ablation runner for TritonBench files.
+Profiler ablation runner for TritonBench and Liger-Kernel files.
 Runs triton-profiler on selected files with configurable environment variables.
+
+Supports two repositories:
+  - tritonbench: Run Python files directly
+  - liger_kernel: Run pytest tests (test_file.py::test_function format)
 """
 
 import os
@@ -13,9 +17,14 @@ from datetime import datetime
 import sys
 import argparse
 from collections import OrderedDict
+from typing import Dict, Any, List
 
-# TritonBench directory
-TRITONBENCH_DIR = Path("/home/hwu27/workspace/tile-lens-experiments/submodules/TritonBench/data/TritonBench_G_v1")
+# Add utils to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "utils"))
+from test_registry import (
+    load_registry, discover_tests, get_test_dir, list_available_repos,
+    TRITONBENCH_DIR
+)
 
 # Profiler configurations with different environment variables
 PROFILER_CONFIGS = OrderedDict([
@@ -66,80 +75,53 @@ PROFILER_CONFIGS = OrderedDict([
 ])
 
 
-def load_whitelist(whitelist_file):
-    """Load whitelist from file."""
-    whitelist = []
-    if whitelist_file.exists():
-        with open(whitelist_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    whitelist.append(line)
-    return whitelist
+def run_profiler(test: Dict[str, Any], config: Dict[str, Any], output_dir: Path,
+                 test_number: int, total_tests: int) -> bool:
+    """Run triton-profiler on a single test with given configuration."""
 
-
-def discover_files(whitelist=None, case=None):
-    """Discover Python files to profile."""
-    files = []
-
-    if not TRITONBENCH_DIR.exists():
-        print(f"Error: TritonBench directory not found: {TRITONBENCH_DIR}")
-        return files
-
-    # Get all Python files
-    all_files = sorted([f for f in TRITONBENCH_DIR.glob("*.py") if not f.name.startswith("__")])
-
-    if case:
-        # Run a single case
-        case_name = case if case.endswith('.py') else f"{case}.py"
-        files = [f for f in all_files if f.name == case_name]
-        if files:
-            print(f"Running single case: {case_name}")
-        else:
-            print(f"Error: Case not found: {case_name}")
-            print(f"Available cases: {', '.join(f.stem for f in all_files[:10])}...")
-    elif whitelist:
-        # Filter by whitelist
-        files = [f for f in all_files if f.name in whitelist]
-        print(f"Using whitelist: {len(files)} out of {len(all_files)} files selected")
-    else:
-        files = all_files
-        print(f"No whitelist provided, using all {len(files)} files")
-
-    return files
-
-
-def run_profiler(file_path, config, output_dir, test_number, total_tests):
-    """Run triton-profiler on a single file with given configuration."""
+    file_path = test["file_path"]
+    test_name = test["name"]
+    is_pytest = test["is_pytest"]
+    test_function = test.get("test_function")
 
     # Create output directory for this configuration
     config_output_dir = output_dir / config["name"]
     config_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create output filename
+    # Create safe filename (replace :: with __)
+    safe_name = test_name.replace("::", "__")
     test_num_str = str(test_number).zfill(len(str(total_tests)))
-    output_filename = f"{test_num_str}_{file_path.stem}.log"
+    output_filename = f"{test_num_str}_{safe_name}.log"
     output_file = config_output_dir / output_filename
 
     # Setup environment
     env = os.environ.copy()
     env.update(config["env"])
 
-    # Construct command
-    cmd = ["triton-profiler", str(file_path)]
+    # Construct command based on test type
+    if is_pytest:
+        # Liger-Kernel style: run pytest with triton-profiler
+        test_spec = f"{file_path.name}::{test_function}" if test_function else file_path.name
+        cmd = ["triton-profiler", "pytest", "-s", "--assert=plain", test_spec]
+        cwd = file_path.parent
+    else:
+        # TritonBench style: run Python file directly
+        cmd = ["triton-profiler", str(file_path)]
+        cwd = file_path.parent
 
     # Print status
-    print(f"  [{test_number}/{total_tests}] Running {file_path.name} with {config['name']}...")
+    print(f"  [{test_number}/{total_tests}] Running {test_name} with {config['name']}...")
 
     # Run the command
     start_time = time.time()
 
     with open(output_file, 'w') as f:
         # Write header information
-        f.write(f"Test: {file_path.name}\n")
+        f.write(f"Test: {test_name}\n")
         f.write(f"Configuration: {config['name']}\n")
         f.write(f"Environment: {json.dumps(config['env'], indent=2)}\n")
         f.write(f"Command: {' '.join(cmd)}\n")
+        f.write(f"Working directory: {cwd}\n")
         f.write(f"Start time: {datetime.now().isoformat()}\n")
         f.write("=" * 80 + "\n\n")
         f.flush()
@@ -150,7 +132,7 @@ def run_profiler(file_path, config, output_dir, test_number, total_tests):
                 env=env,
                 stdout=f,
                 stderr=subprocess.STDOUT,
-                cwd=TRITONBENCH_DIR,
+                cwd=cwd,
                 timeout=300  # 5 minute timeout
             )
 
@@ -161,9 +143,9 @@ def run_profiler(file_path, config, output_dir, test_number, total_tests):
             f.write(f"Elapsed time: {elapsed_time:.2f} seconds\n")
 
             if result.returncode == 0:
-                print(f"    ✓ Completed in {elapsed_time:.2f}s")
+                print(f"    [OK] Completed in {elapsed_time:.2f}s")
             else:
-                print(f"    ✗ Failed with exit code {result.returncode}")
+                print(f"    [FAIL] Exit code {result.returncode}")
 
             return result.returncode == 0
 
@@ -172,7 +154,7 @@ def run_profiler(file_path, config, output_dir, test_number, total_tests):
             f.write("\n" + "=" * 80 + "\n")
             f.write(f"TIMEOUT: Test exceeded 300 seconds\n")
             f.write(f"Elapsed time: {elapsed_time:.2f} seconds\n")
-            print(f"    ✗ Timeout after {elapsed_time:.2f}s")
+            print(f"    [TIMEOUT] {elapsed_time:.2f}s")
             return False
 
         except Exception as e:
@@ -180,17 +162,57 @@ def run_profiler(file_path, config, output_dir, test_number, total_tests):
             f.write("\n" + "=" * 80 + "\n")
             f.write(f"ERROR: {str(e)}\n")
             f.write(f"Elapsed time: {elapsed_time:.2f} seconds\n")
-            print(f"    ✗ Error: {str(e)}")
+            print(f"    [ERROR] {str(e)}")
             return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run profiler ablation study on TritonBench files")
-    parser.add_argument("--whitelist", type=str, help="Path to whitelist file")
-    parser.add_argument("-c", "--case", type=str, help="Run a single test case (e.g., bgmv_expand_slice)")
-    parser.add_argument("--output-dir", type=str, help="Output directory for logs")
-    parser.add_argument("--configs", nargs="+", choices=list(PROFILER_CONFIGS.keys()) + ["all"],
-                       default=["all"], help="Configurations to run")
+    parser = argparse.ArgumentParser(
+        description="Run profiler ablation study on TritonBench or Liger-Kernel files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all tritonbench tests with all configurations
+  python ablation_runner.py --repo tritonbench
+
+  # Run liger_kernel tests
+  python ablation_runner.py --repo liger_kernel
+
+  # Run a single test case
+  python ablation_runner.py --repo tritonbench -c matmul_triton1
+
+  # Run with specific configurations
+  python ablation_runner.py --repo tritonbench --configs both_enabled both_disabled
+        """
+    )
+    parser.add_argument(
+        "--repo",
+        choices=list_available_repos(),
+        default="tritonbench",
+        help="Repository to run tests from (default: tritonbench)"
+    )
+    parser.add_argument(
+        "-c", "--case",
+        type=str,
+        help="Run a single test case (e.g., matmul_triton1 or test_rms_norm.py::test_correctness)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        help="Output directory for logs"
+    )
+    parser.add_argument(
+        "--configs",
+        nargs="+",
+        choices=list(PROFILER_CONFIGS.keys()) + ["all"],
+        default=["all"],
+        help="Configurations to run"
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        help="Path to custom test registry file (default: utils/test_registry.txt)"
+    )
     args = parser.parse_args()
 
     # Setup output directory
@@ -202,20 +224,17 @@ def main():
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load whitelist if provided
-    whitelist = None
-    if args.whitelist:
-        whitelist_file = Path(args.whitelist)
-        if whitelist_file.exists():
-            whitelist = load_whitelist(whitelist_file)
-            print(f"Loaded whitelist from {whitelist_file}: {len(whitelist)} files")
-        else:
-            print(f"Warning: Whitelist file not found: {whitelist_file}")
+    # Load test registry
+    registry_file = Path(args.registry) if args.registry else None
+    registry = load_registry(registry_file)
+    if not registry:
+        print("Error: No tests found in registry")
+        return 1
 
-    # Discover files
-    files = discover_files(whitelist, case=args.case)
-    if not files:
-        print("No files to process")
+    # Discover tests for the specified repo
+    tests = discover_tests(args.repo, registry, case=args.case)
+    if not tests:
+        print("No tests to process")
         return 1
 
     # Determine configurations to run
@@ -225,14 +244,15 @@ def main():
         configs_to_run = args.configs
 
     # Calculate total number of tests
-    total_tests = len(files) * len(configs_to_run)
+    total_tests = len(tests) * len(configs_to_run)
 
     print(f"\n{'=' * 60}")
     print(f"Profiler Ablation Study")
     print(f"{'=' * 60}")
-    print(f"Files to profile: {len(files)}")
+    print(f"Repository: {args.repo}")
+    print(f"Tests to profile: {len(tests)}")
     print(f"Configurations: {', '.join(configs_to_run)}")
-    print(f"Total tests: {total_tests}")
+    print(f"Total runs: {total_tests}")
     print(f"Output directory: {output_dir}")
     print(f"{'=' * 60}\n")
 
@@ -248,11 +268,12 @@ def main():
 
         config_results = []
 
-        for file_path in files:
+        for test in tests:
             test_counter += 1
-            success = run_profiler(file_path, config, output_dir, test_counter, total_tests)
+            success = run_profiler(test, config, output_dir, test_counter, total_tests)
             config_results.append({
-                "file": file_path.name,
+                "name": test["name"],
+                "global_id": test["global_id"],
                 "success": success
             })
 
@@ -260,7 +281,7 @@ def main():
 
         # Print summary for this configuration
         successful = sum(1 for r in config_results if r["success"])
-        print(f"\n  Configuration summary: {successful}/{len(files)} tests passed\n")
+        print(f"\n  Configuration summary: {successful}/{len(tests)} tests passed\n")
 
     # Print overall summary
     print(f"\n{'=' * 60}")
@@ -270,7 +291,10 @@ def main():
     for config_name, config_results in results.items():
         successful = sum(1 for r in config_results if r["success"])
         total = len(config_results)
-        print(f"{config_name:25} {successful:3}/{total:3} passed ({successful*100/total:.1f}%)")
+        if total > 0:
+            print(f"{config_name:25} {successful:3}/{total:3} passed ({successful*100/total:.1f}%)")
+        else:
+            print(f"{config_name:25} No results")
 
     print(f"{'=' * 60}")
     print(f"Results saved in: {output_dir}/")
@@ -281,8 +305,9 @@ def main():
     with open(summary_file, 'w') as f:
         json.dump({
             "timestamp": datetime.now().isoformat(),
+            "repository": args.repo,
             "configurations": configs_to_run,
-            "files": [f.name for f in files],
+            "tests": [{"name": t["name"], "global_id": t["global_id"]} for t in tests],
             "results": results
         }, f, indent=2)
 

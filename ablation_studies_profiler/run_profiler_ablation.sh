@@ -5,11 +5,16 @@
 # Parse command line options
 CASE_ARG=""
 CONFIGS=""
+REPO="tritonbench"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -c|--case)
             CASE_ARG="--case $2"
+            shift 2
+            ;;
+        -r|--repo)
+            REPO="$2"
             shift 2
             ;;
         *)
@@ -49,20 +54,12 @@ echo ""
 # Base output directory
 OUTPUT_BASE="profiler_ablation_${TIMESTAMP}"
 
-# Check for case option or whitelist
-WHITELIST_ARG=""
+# Display run configuration
+echo "Repository: ${REPO}"
 if [ -n "$CASE_ARG" ]; then
     echo "✓ Running single case: $(echo $CASE_ARG | cut -d' ' -f2)"
-elif [ -f "whitelist.txt" ]; then
-    echo "✓ Using whitelist.txt"
-    WHITELIST_ARG="--whitelist whitelist.txt"
-    echo "  Files in whitelist:"
-    grep -v "^#" whitelist.txt | grep -v "^$" | sed 's/^/    - /'
 else
-    echo "✗ No whitelist.txt found, will run all files"
-    echo "  Warning: This may take a long time!"
-    echo "  Create whitelist.txt to run specific files only"
-    echo "  Or use -c <case_name> to run a single case"
+    echo "✓ Running all tests from registry"
 fi
 echo ""
 
@@ -90,7 +87,7 @@ echo ""
 
 # Run the Python script
 python3 ablation_runner.py \
-    ${WHITELIST_ARG} \
+    --repo "${REPO}" \
     ${CASE_ARG} \
     --output-dir "${OUTPUT_BASE}" \
     --configs ${CONFIGS}
