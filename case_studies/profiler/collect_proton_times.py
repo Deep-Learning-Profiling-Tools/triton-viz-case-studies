@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
-NUM_RUNS = 5
+NUM_RUNS = 1
 
 STUDY_CASES: Dict[str, List[str]] = {
     "unroll_for_loop": [
@@ -221,6 +221,10 @@ def main() -> None:
                     continue
 
                 print(f"Profiling {py_file} with kernels {', '.join(kernels)}")
+                # Warmup run
+                print(f"  Warmup...", end=" ")
+                run_proton(py_file)
+                print("done")
                 times = []
                 for run in range(NUM_RUNS):
                     print(f"  Run {run + 1}/{NUM_RUNS}...", end=" ")

@@ -93,6 +93,25 @@ def main():
         yticks=[1.0, 2.0, 3.0]
     )
 
+    # 生成 AMD 版本的图（如果对应的 CSV 文件存在）
+    unroll_amd_csv = script_dir / 'unroll_stats_amd.csv'
+    if unroll_amd_csv.exists():
+        plot_speedup(
+            input_csv=unroll_amd_csv,
+            output_pdf='unroll_speedup_amd.pdf',
+            ylim=(0.8, 1.7),
+            yticks=[1.0, 1.5]
+        )
+
+    mask_amd_csv = script_dir / 'mask_stats_amd.csv'
+    if mask_amd_csv.exists():
+        plot_speedup(
+            input_csv=mask_amd_csv,
+            output_pdf='mask_speedup_amd.pdf',
+            ylim=(0.8, 3.6),
+            yticks=[1.0, 2.0, 3.0]
+        )
+
 
 if __name__ == "__main__":
     main()
