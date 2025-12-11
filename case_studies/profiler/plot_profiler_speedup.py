@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from pathlib import Path
+from matplotlib.ticker import FormatStrFormatter
 
 
 def plot_speedup(input_csv: Path, output_pdf: str, ylim: tuple, yticks: np.ndarray):
@@ -23,7 +24,7 @@ def plot_speedup(input_csv: Path, output_pdf: str, ylim: tuple, yticks: np.ndarr
     plt.rcParams['font.family'] = 'sans-serif'
 
     # 创建画布
-    fig, ax = plt.subplots(figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(14, 4.25))
 
     # 定义颜色
     bar_color = '#6A8DC2'
@@ -35,21 +36,13 @@ def plot_speedup(input_csv: Path, output_pdf: str, ylim: tuple, yticks: np.ndarr
     bars = ax.bar(
         x=x_positions,
         height=df_sorted['speedup'],
-        yerr=df_sorted['speedup_std'],
         color=bar_color,
         edgecolor=edge_color,
         linewidth=0.5,
         width=1.4,
-        capsize=3,
-        error_kw={'ecolor': error_bar_color, 'elinewidth': 1.0, 'capthick': 1.0},
-        label='Mean Speedup'
     )
     ax.set_xticks(x_positions)
     ax.set_xticklabels(df_sorted['Case Name'], rotation=30, ha='right')
-
-    # 添加图例的误差条代理
-    error_line = ax.errorbar([x_positions[-1] + 10], [1.5], yerr=[0.05], fmt='none',
-                              ecolor='black', capsize=3, elinewidth=1.0, label='Standard Deviation')
 
     # 添加基准线
     ax.axhline(y=1.0, color='black', linestyle='--', linewidth=1.5, zorder=1)
@@ -58,12 +51,13 @@ def plot_speedup(input_csv: Path, output_pdf: str, ylim: tuple, yticks: np.ndarr
     ax.set_xlim(-1, x_positions[-1] + 1)
 
     # 坐标轴设置
-    ax.set_ylabel('Speedup', fontsize=32, labelpad=10)
+    ax.set_ylabel('Speedup', fontsize=22, labelpad=10)
     ax.set_ylim(ylim)
     ax.set_yticks(yticks)
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
 
     ax.tick_params(axis='x', pad=2, labelsize=20, labelcolor='0.2')
-    ax.tick_params(axis='y', pad=0, labelsize=26)
+    ax.tick_params(axis='y', pad=0, labelsize=22)
 
     # 网格线
     ax.grid(axis='y', linestyle='--', linewidth=0.5, color='gray', alpha=0.7, zorder=0)
@@ -73,9 +67,6 @@ def plot_speedup(input_csv: Path, output_pdf: str, ylim: tuple, yticks: np.ndarr
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_linewidth(0.8)
-
-    # 图例
-    ax.legend(loc='upper right', fontsize=22, frameon=True, labelcolor='0')
 
     plt.tight_layout()
     plt.savefig(output_pdf, bbox_inches='tight')
@@ -91,7 +82,7 @@ def main():
         input_csv=script_dir / 'unroll_stats.csv',
         output_pdf='unroll_speedup.pdf',
         ylim=(0.8, 1.7),
-        yticks=np.arange(0.8, 1.8, 0.2)
+        yticks=[1.0, 1.5]
     )
 
     # 生成 mask speedup 图
@@ -99,7 +90,7 @@ def main():
         input_csv=script_dir / 'mask_stats.csv',
         output_pdf='mask_speedup.pdf',
         ylim=(0.8, 3.6),
-        yticks=np.arange(1.0, 3.7, 0.5)
+        yticks=[1.0, 2.0, 3.0]
     )
 
 
